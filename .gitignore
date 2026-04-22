@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+
+# Data (don't commit local DB)
+data/
+memory_vault/
+
+# OS
+.DS_Store
+Thumbs.db
