@@ -429,8 +429,11 @@ def open_file_folder():
 def synthesize_with_qwen(text: str) -> bytes:
     try:
         from aip import AipSpeech
-    except ImportError:
-        raise RuntimeError("请先安装百度AIP: pip install baidu-aip")
+    except ImportError as e:
+        print(f"[ERROR] Failed to import AipSpeech: {e}", file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        raise RuntimeError(f"百度AIP包导入失败: {e}")
     app_id = os.getenv("BAIDU_APP_ID", "").strip()
     api_key_baidu = os.getenv("BAIDU_API_KEY", "").strip()
     secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
@@ -469,8 +472,11 @@ def recognize_with_baidu(wav_bytes: bytes) -> str:
     """使用百度语音识别API将音频转为文字"""
     try:
         from aip import AipSpeech
-    except ImportError:
-        raise RuntimeError("请先安装百度AIP: pip install baidu-aip")
+    except ImportError as e:
+        print(f"[ERROR] Failed to import AipSpeech: {e}", file=sys.stderr, flush=True)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        raise RuntimeError(f"百度AIP包导入失败: {e}")
 
     app_id = os.getenv("BAIDU_APP_ID", "").strip()
     api_key = os.getenv("BAIDU_API_KEY", "").strip()
