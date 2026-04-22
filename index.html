@@ -93,6 +93,51 @@
             flex-wrap: wrap;
         }
 
+        .theme-toggle {
+            background: linear-gradient(135deg, #f8fafb 0%, #e8f4f0 100%);
+            border: 1px solid #d1e7e4;
+            border-radius: 17px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(15, 118, 110, 0.1);
+        }
+
+        body.dark-mode {
+            --bg-gradient-start: #1a2e2c;
+            --bg-gradient-end: #0f766e;
+            --card-bg: #2a4a47;
+            --card-border: #4a6360;
+            --text-primary: #f0f7f6;
+            --text-secondary: #c5ddd9;
+            --text-muted: #7a8f8c;
+            --assistant-bg: #1a2e2c;
+            --assistant-border: #4a6360;
+            --user-bg: linear-gradient(135deg, #0f766e, #14b8a6);
+        }
+
+        .stats-badge {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            color: #92400e;
+            border: 1px solid #f59e0b;
+            border-radius: 12px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .stats-badge:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+        }
+
         .btn {
             background: linear-gradient(135deg, #fff8f0 0%, #fff5eb 100%);
             border: 1px solid #e8d4b8;
@@ -550,6 +595,17 @@
             opacity: 0.85;
         }
 
+        /* 连续对话模式样式 */
+        .btn-voice.recording {
+            background: linear-gradient(135deg, #ff4757 0%, #ff3838 100%);
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+        }
+
+        .btn-voice.recording:hover {
+            background: linear-gradient(135deg, #ff3838 0%, #ff2828 100%);
+            transform: translateY(-2px);
+        }
+
         .pending-indicator {
             background: linear-gradient(135deg, #fff8e6 0%, #fff3d6 100%);
             border: 1px solid #e8c88a;
@@ -671,8 +727,12 @@
                 justify-content: center;
                 gap: 8px;
             }
-            .btn {
-                padding: 6px 12px;
+            .stats-badge {
+                font-size: 10px;
+                padding: 3px 8px;
+            }
+            .theme-toggle {
+                padding: 6px 10px;
                 font-size: 12px;
             }
             .main {
@@ -825,9 +885,9 @@
             <div class="header-subtitle">把零散念头、语音和附件整理成可搜索的私人记忆库</div>
         </div>
         <div class="header-right">
+            <div class="stats-badge" onclick="showStats()" title="查看统计信息">📊 统计</div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
             <button class="btn btn-clear" onclick="clearChat()">清空对话</button>
-            <button class="btn" onclick="openVault()">记忆库</button>
-            <button class="btn" onclick="changeVaultPath()">更换位置</button>
         </div>
     </div>
 
@@ -849,7 +909,7 @@
             </div>
 
             <div class="input-area" id="drop-area">
-                <input type="text" class="command-input" id="command-input" placeholder="输入内容...（回车发送）" onkeypress="handleKeyPress(event)">
+                <textarea class="command-input" id="command-input" placeholder="输入内容...（回车发送）" onkeypress="handleKeyPress(event)" rows="1" style="resize: none; overflow: hidden;"></textarea>
                 <button class="btn-voice" id="voice-btn" title="语音输入" onclick="toggleVoice()">🎤</button>
                 <button class="btn-send" id="send-btn" title="发送" onclick="sendMessage()">➜</button>
             </div>
@@ -868,10 +928,10 @@
         </div>
     </div>
 
-    <div id="audio-indicator" onclick="stopRecording()">
+    <div id="audio-indicator">
         <div class="mic-icon">🎤</div>
-        <div>正在录音...</div>
-        <div class="sub">点击任意位置结束录音</div>
+        <div>正在监听...</div>
+        <div class="sub">检测到语音自动开始录音</div>
     </div>
 
     <!-- 图片预览模态框 (默认隐藏) -->
@@ -895,6 +955,22 @@
         <div id="modal-info" class="image-modal-info"></div>
     </div>
 
+    <!-- 统计信息弹窗 -->
+    <div id="stats-modal" class="image-modal-overlay" style="display: none;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 20px; padding: 30px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <h3 style="margin: 0 0 20px 0; color: #1a2e2c; font-size: 24px;">📊 记忆统计</h3>
+            <div id="stats-content">
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">⏳</div>
+                    <div>加载中...</div>
+                </div>
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button onclick="closeStatsModal()" style="background: #f0f7f6; border: 1px solid #c5ddd9; border-radius: 10px; padding: 8px 16px; cursor: pointer;">关闭</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         let chatHistory = [];
         let isRecording = false;
@@ -903,9 +979,32 @@
         let audioChunks = [];
         let pendingSaveText = null;
         const sendBtn = document.getElementById('send-btn');
+        
+        // 实时语音对话相关变量
+        let isContinuousMode = false; // 是否处于连续对话模式
+        let vadAnalyzer = null; // 语音活动检测器
+        let silenceTimer = null; // 静音检测定时器
+        let audioContext = null; // Web Audio API上下文
+        let analyser = null; // 音频分析器
+        let microphone = null; // 麦克风流
+        let vadBuffer = []; // VAD缓冲区
+        let vadThreshold = 0.01; // 语音活动阈值
+        let silenceDuration = 1500; // 静音持续时间(ms)
+        let isListening = false; // 是否正在监听
+
+        // 输入框自动调整高度
+        function autoResizeTextarea() {
+            const textarea = document.getElementById('command-input');
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        }
+
+        // 监听输入框输入事件
+        document.getElementById('command-input').addEventListener('input', autoResizeTextarea);
 
         function handleKeyPress(event) {
-            if (event.key === 'Enter') {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
                 sendMessage();
             }
         }
@@ -1217,6 +1316,401 @@
             img.style.display = 'none';
             document.getElementById('modal-error').style.display = 'none';
         }
+
+        // 统计信息相关函数
+        async function showStats() {
+            const modal = document.getElementById('stats-modal');
+            const content = document.getElementById('stats-content');
+            
+            content.innerHTML = `
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">⏳</div>
+                    <div>加载中...</div>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+            
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                
+                if (stats.error) {
+                    throw new Error(stats.error);
+                }
+                
+                content.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                        <div style="text-align: center; padding: 20px; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="font-size: 28px; font-weight: bold; color: var(--primary); margin-bottom: 4px;">${stats.total_memories || 0}</div>
+                            <div style="color: var(--text-secondary); font-size: 13px;">总记忆数</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="font-size: 28px; font-weight: bold; color: var(--primary); margin-bottom: 4px;">${stats.recent_count || 0}</div>
+                            <div style="color: var(--text-secondary); font-size: 13px;">最近记忆</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: var(--bg-secondary); border-radius: 12px; border: 1px solid var(--border);">
+                            <div style="font-size: 28px; font-weight: bold; color: var(--primary); margin-bottom: 4px;">${stats.total_files || 0}</div>
+                            <div style="color: var(--text-secondary); font-size: 13px;">文件数量</div>
+                        </div>
+                    </div>
+                    
+                    ${stats.top_tags && stats.top_tags.length > 0 ? `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">热门标签</h4>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                ${stats.top_tags.slice(0, 10).map(([tag, count]) => 
+                                    `<span style="background: var(--primary-light); color: var(--primary); padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 500;">${tag} (${count})</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    ${stats.storage_info ? `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">存储信息</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                                <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+                                    <div style="font-size: 18px; font-weight: bold; color: var(--primary);">${stats.storage_info.total_size || '0MB'}</div>
+                                    <div style="color: var(--text-secondary); font-size: 12px;">总大小</div>
+                                </div>
+                                <div style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; border: 1px solid var(--border);">
+                                    <div style="font-size: 18px; font-weight: bold; color: var(--primary);">${stats.storage_info.last_backup || '无'}</div>
+                                    <div style="color: var(--text-secondary); font-size: 12px;">最后备份</div>
+                                </div>
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    ${stats.last_updated ? `
+                        <div style="color: var(--text-secondary); font-size: 12px; text-align: center; padding-top: 16px; border-top: 1px solid var(--border);">
+                            📅 最后更新: ${new Date(stats.last_updated).toLocaleString('zh-CN')}
+                        </div>
+                    ` : ''}
+                `;
+                
+            } catch (error) {
+                content.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #dc2626;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                        <div>加载失败: ${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+
+        function closeStatsModal() {
+            document.getElementById('stats-modal').style.display = 'none';
+        }
+
+        // 语音活动检测 (VAD) - 检测用户何时开始和停止说话
+        async function initVAD() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                analyser.smoothingTimeConstant = 0.3;
+                
+                microphone = await navigator.mediaDevices.getUserMedia({ 
+                    audio: { 
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    } 
+                });
+                
+                const source = audioContext.createMediaStreamSource(microphone);
+                source.connect(analyser);
+                
+                vadBuffer = [];
+                return true;
+            } catch (error) {
+                console.error('VAD初始化失败:', error);
+                return false;
+            }
+        }
+
+        function checkVoiceActivity() {
+            if (!analyser) return false;
+            
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+            
+            // 计算音频能量
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / bufferLength) / 128.0; // 归一化到0-1
+            
+            // 滑动平均滤波
+            vadBuffer.push(rms);
+            if (vadBuffer.length > 10) {
+                vadBuffer.shift();
+            }
+            
+            const avgEnergy = vadBuffer.reduce((a, b) => a + b, 0) / vadBuffer.length;
+            return avgEnergy > vadThreshold;
+        }
+
+        // 开始连续语音对话
+        async function startContinuousConversation() {
+            if (isContinuousMode) return;
+            
+            try {
+                setStatus('🎤 初始化语音识别...');
+                
+                // 初始化VAD
+                const vadReady = await initVAD();
+                if (!vadReady) {
+                    throw new Error('无法访问麦克风');
+                }
+                
+                isContinuousMode = true;
+                isListening = true;
+                updateVoiceButton();
+                
+                setStatus('👂 正在监听，请说话...');
+                document.getElementById('audio-indicator').style.display = 'block';
+                document.getElementById('audio-indicator').innerHTML = `
+                    <div class="mic-icon">🎤</div>
+                    <div>正在监听...</div>
+                    <div class="sub">检测到语音自动开始录音</div>
+                `;
+                
+                // 开始语音活动检测循环
+                vadLoop();
+                
+            } catch (error) {
+                console.error('连续对话启动失败:', error);
+                setStatus('语音功能不可用: ' + error.message);
+                stopContinuousConversation();
+            }
+        }
+
+        // VAD检测循环
+        function vadLoop() {
+            if (!isContinuousMode) return;
+            
+            const hasVoice = checkVoiceActivity();
+            
+            if (hasVoice && !isRecording) {
+                // 检测到语音，开始录音
+                startRecordingFromVAD();
+            } else if (!hasVoice && isRecording) {
+                // 语音停止，延迟检查是否真的静音
+                if (!silenceTimer) {
+                    silenceTimer = setTimeout(() => {
+                        if (!checkVoiceActivity()) {
+                            stopRecordingAndProcess();
+                        }
+                        silenceTimer = null;
+                    }, silenceDuration);
+                }
+            }
+            
+            // 继续检测循环
+            if (isContinuousMode) {
+                requestAnimationFrame(vadLoop);
+            }
+        }
+
+        // 从VAD开始录音
+        function startRecordingFromVAD() {
+            if (isRecording) return;
+            
+            try {
+                mediaRecorder = new MediaRecorder(microphone, { 
+                    mimeType: 'audio/webm;codecs=opus' 
+                });
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) {
+                        audioChunks.push(e.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    if (audioChunks.length > 0) {
+                        await processVoiceInput();
+                    }
+                };
+                
+                mediaRecorder.start(100); // 每100ms收集一次数据
+                isRecording = true;
+                
+                setStatus('🎙️ 正在录音...');
+                document.getElementById('audio-indicator').innerHTML = `
+                    <div class="mic-icon">🎙️</div>
+                    <div>正在录音...</div>
+                    <div class="sub">请继续说话，停顿时自动处理</div>
+                `;
+                
+                // 清除静音定时器
+                if (silenceTimer) {
+                    clearTimeout(silenceTimer);
+                    silenceTimer = null;
+                }
+                
+            } catch (error) {
+                console.error('录音启动失败:', error);
+                setStatus('录音失败: ' + error.message);
+            }
+        }
+
+        // 停止录音并处理
+        function stopRecordingAndProcess() {
+            if (!isRecording || !mediaRecorder) return;
+            
+            mediaRecorder.stop();
+            isRecording = false;
+            
+            setStatus('🔄 正在识别语音...');
+            document.getElementById('audio-indicator').innerHTML = `
+                <div class="mic-icon">🔄</div>
+                <div>正在识别...</div>
+                <div class="sub">请稍候</div>
+            `;
+        }
+
+        // 处理语音输入
+        async function processVoiceInput() {
+            try {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const wavBlob = await convertWebMToWAV(audioBlob);
+                
+                setStatus('🎯 正在识别语音...');
+                const text = await recognizeAudioForConversation(wavBlob);
+                
+                if (text && text.trim()) {
+                    // 自动发送识别到的文本
+                    voiceReplyEnabled = true; // 启用自动语音回复
+                    document.getElementById('command-input').value = text;
+                    await sendMessage();
+                    
+                    setStatus('✅ 识别完成，等待回复...');
+                } else {
+                    setStatus('❓ 未识别到有效内容');
+                    addBubble('assistant', '我没有听清，请再试一次...');
+                }
+                
+                // 短暂延迟后重新开始监听
+                setTimeout(() => {
+                    if (isContinuousMode) {
+                        setStatus('👂 正在监听，请说话...');
+                        document.getElementById('audio-indicator').innerHTML = `
+                            <div class="mic-icon">🎤</div>
+                            <div>正在监听...</div>
+                            <div class="sub">检测到语音自动开始录音</div>
+                        `;
+                    }
+                }, 2000);
+                
+            } catch (error) {
+                console.error('语音处理失败:', error);
+                setStatus('❌ 语音处理失败: ' + error.message);
+                addBubble('assistant', '语音处理失败，请重试');
+                
+                // 重新开始监听
+                setTimeout(() => {
+                    if (isContinuousMode) {
+                        setStatus('👂 正在监听，请说话...');
+                    }
+                }, 3000);
+            }
+        }
+
+        // 停止连续对话
+        function stopContinuousConversation() {
+            isContinuousMode = false;
+            isListening = false;
+            
+            // 停止录音
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+            }
+            
+            // 清理资源
+            if (microphone) {
+                microphone.getTracks().forEach(track => track.stop());
+                microphone = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+            
+            analyser = null;
+            vadBuffer = [];
+            
+            // 隐藏录音指示器
+            document.getElementById('audio-indicator').style.display = 'none';
+            
+            updateVoiceButton();
+            setStatus('准备就绪');
+        }
+
+        // 更新语音按钮状态
+        function updateVoiceButton() {
+            const voiceBtn = document.getElementById('voice-btn');
+            
+            if (isContinuousMode) {
+                voiceBtn.textContent = '⏹️';
+                voiceBtn.title = '停止连续对话';
+                voiceBtn.classList.add('recording');
+            } else {
+                voiceBtn.textContent = '🎤';
+                voiceBtn.title = '开始连续对话';
+                voiceBtn.classList.remove('recording');
+            }
+        }
+
+        // 语音识别（专门用于连续对话）
+        async function recognizeAudioForConversation(audioBlob) {
+            try {
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'recording.wav');
+                
+                const response = await fetch('/api/speech_recognize', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                return data.text || '';
+            } catch (error) {
+                console.error('语音识别失败:', error);
+                throw error;
+            }
+        }
+
+        // 初始化主题
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const toggleBtn = document.querySelector('.theme-toggle');
+            
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-mode');
+                toggleBtn.textContent = '☀️';
+                toggleBtn.title = '切换到亮色模式';
+            } else {
+                toggleBtn.textContent = '🌙';
+                toggleBtn.title = '切换到暗色模式';
+            }
+        }
         
         // 图片加载失败处理
         function handleImageError(imgEl) {
@@ -1329,51 +1823,55 @@
         }
 
         function clearChat() {
-            const view = document.getElementById('chat-view');
-            view.innerHTML = `
-                <div class="welcome">
-                    <div class="welcome-icon">🌸</div>
-                    <h2>你好！我是暖暖</h2>
-                    <p>你可以直接告诉我想记住什么，或像聊天一样问我"之前存过什么"。</p>
-                    <p>支持语音输入、拖拽文件和图片。</p>
-                </div>
-            `;
-            pendingSaveText = null;
-            showPendingIndicator(false);
-            chatHistory = [];
-            fetch('/api/clear', { method: 'POST' });
-            setStatus('已清空');
-        }
-
-        async function openVault() {
-            try {
-                await fetch('/api/vault/open', { method: 'POST' });
-            } catch (e) {
-                console.error('打开记忆库失败:', e);
+            if (confirm('确定要清空所有对话记录吗？此操作不可撤销。')) {
+                const view = document.getElementById('chat-view');
+                view.innerHTML = `
+                    <div class="welcome">
+                        <div class="welcome-icon">🌸</div>
+                        <h2>你好！我是暖暖</h2>
+                        <p>你可以直接告诉我想记住什么，或像聊天一样问我"之前存过什么"。</p>
+                        <p>支持语音输入、拖拽文件和图片。</p>
+                        <div class="tips">
+                            <div class="tip-item">💬 试试说：「帮我记住我的手机号是138xxxx」</div>
+                            <div class="tip-item">🔍 试试问：「我之前记过什么？」</div>
+                            <div class="tip-item">🎤 点击麦克风按钮可以语音输入</div>
+                            <div class="tip-item">📁 拖拽文件到输入框可以上传保存</div>
+                        </div>
+                    </div>
+                `;
+                pendingSaveText = null;
+                showPendingIndicator(false);
+                chatHistory = [];
+                fetch('/api/clear', { method: 'POST' });
+                setStatus('✅ 已清空对话记录');
+                setTimeout(() => setStatus('准备就绪'), 2000);
             }
         }
 
-        async function changeVaultPath() {
-            const path = prompt('请输入记忆库路径:');
-            if (path) {
-                try {
-                    await fetch('/api/vault/set_path', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ path: path })
-                    });
-                    setStatus('记忆库路径已更新');
-                } catch (e) {
-                    setStatus('设置失败: ' + e.message);
-                }
-            }
-        }
-
-        async function toggleVoice() {
-            if (isRecording) {
-                stopRecording();
+        // 主题切换功能
+        function toggleTheme() {
+            const body = document.body;
+            const toggleBtn = document.querySelector('.theme-toggle');
+            
+            if (body.classList.contains('dark-mode')) {
+                body.classList.remove('dark-mode');
+                toggleBtn.textContent = '🌙';
+                toggleBtn.title = '切换到暗色模式';
+                localStorage.setItem('theme', 'light');
             } else {
-                startRecording();
+                body.classList.add('dark-mode');
+                toggleBtn.textContent = '☀️';
+                toggleBtn.title = '切换到亮色模式';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // 语音按钮点击事件 - 切换连续对话模式
+        async function toggleVoice() {
+            if (isContinuousMode) {
+                stopContinuousConversation();
+            } else {
+                await startContinuousConversation();
             }
         }
 
@@ -1841,7 +2339,37 @@
             }
         });
         
-        document.getElementById('command-input').focus();
+        // 初始化主题
+        initTheme();
+        
+        // 性能监控
+        window.performanceData = {
+            apiCalls: 0,
+            totalResponseTime: 0,
+            errors: 0
+        };
+        
+        // 拦截fetch请求进行性能监控
+        const originalFetch = window.fetch;
+        window.fetch = async function(...args) {
+            const startTime = performance.now();
+            window.performanceData.apiCalls++;
+            
+            try {
+                const response = await originalFetch.apply(this, args);
+                const duration = performance.now() - startTime;
+                window.performanceData.totalResponseTime += duration;
+                
+                if (!response.ok) {
+                    window.performanceData.errors++;
+                }
+                
+                return response;
+            } catch (error) {
+                window.performanceData.errors++;
+                throw error;
+            }
+        };
     </script>
 </body>
 </html>

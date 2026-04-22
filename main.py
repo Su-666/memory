@@ -10,6 +10,9 @@ import wave
 import base64
 import threading
 import re
+import time
+import hashlib
+from functools import wraps
 from pathlib import Path
 
 # 优先设置导入路径
@@ -79,6 +82,117 @@ print("[STARTUP] Baidu API Configuration Status:", file=sys.stderr, flush=True)
 print(f"[STARTUP] BAIDU_APP_ID: {'✓ Set' if os.getenv('BAIDU_APP_ID', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
 print(f"[STARTUP] BAIDU_API_KEY: {'✓ Set' if os.getenv('BAIDU_API_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
 print(f"[STARTUP] BAIDU_SECRET_KEY: {'✓ Set' if os.getenv('BAIDU_SECRET_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
+
+# ============ 优化功能 ============
+
+# 简单缓存系统
+class SimpleCache:
+    def __init__(self, max_size=100, ttl=300):  # 5分钟TTL
+        self.cache = {}
+        self.max_size = max_size
+        self.ttl = ttl
+
+    def get(self, key):
+        if key in self.cache:
+            data, timestamp = self.cache[key]
+            if time.time() - timestamp < self.ttl:
+                return data
+            else:
+                del self.cache[key]
+        return None
+
+    def set(self, key, value):
+        if len(self.cache) >= self.max_size:
+            # 简单清理策略：删除最旧的条目
+            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
+            del self.cache[oldest_key]
+        self.cache[key] = (value, time.time())
+
+# 全局缓存实例
+response_cache = SimpleCache()
+
+# 速率限制
+class RateLimiter:
+    def __init__(self, max_requests=10, window_seconds=60):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.requests = {}
+
+    def is_allowed(self, client_id):
+        now = time.time()
+        if client_id not in self.requests:
+            self.requests[client_id] = []
+
+        # 清理过期请求
+        self.requests[client_id] = [
+            req_time for req_time in self.requests[client_id]
+            if now - req_time < self.window_seconds
+        ]
+
+        if len(self.requests[client_id]) < self.max_requests:
+            self.requests[client_id].append(now)
+            return True
+        return False
+
+# 全局速率限制器
+rate_limiter = RateLimiter(max_requests=20, window_seconds=60)  # 每分钟最多20个请求
+
+def get_client_id():
+    """获取客户端标识（基于IP）"""
+    return request.remote_addr or "unknown"
+
+def rate_limit(f):
+    """速率限制装饰器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        client_id = get_client_id()
+        if not rate_limiter.is_allowed(client_id):
+            return jsonify({'error': '请求过于频繁，请稍后再试'}), 429
+        return f(*args, **kwargs)
+    return decorated_function
+
+def cached_response(cache_key_func=None, ttl=300):
+    """响应缓存装饰器"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if cache_key_func:
+                cache_key = cache_key_func(*args, **kwargs)
+            else:
+                # 默认使用请求路径和参数作为缓存键
+                cache_key = f"{request.path}:{hash(str(dict(request.args)))}"
+
+            cached = response_cache.get(cache_key)
+            if cached:
+                return cached
+
+            response = f(*args, **kwargs)
+            if response and hasattr(response, 'get_json'):
+                try:
+                    response_data = response.get_json()
+                    response_cache.set(cache_key, response_data)
+                except:
+                    pass
+            return response
+        return decorated_function
+    return decorator
+
+# 性能监控
+def performance_monitor(f):
+    """性能监控装饰器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = f(*args, **kwargs)
+            duration = time.time() - start_time
+            print(f"[PERF] {f.__name__}: {duration:.3f}s", file=sys.stderr, flush=True)
+            return result
+        except Exception as e:
+            duration = time.time() - start_time
+            print(f"[ERROR] {f.__name__}: {duration:.3f}s - {str(e)}", file=sys.stderr, flush=True)
+            raise
+    return decorated_function
 
 # 数据库和 Vault
 def get_db_conn():
@@ -658,15 +772,111 @@ def get_image():
         return Response('加载失败', status=500)
 
 @app.route('/api/memories/recent', methods=['GET'])
+@rate_limit
+@performance_monitor
+@cached_response(lambda: f"recent_memories:{request.args.get('limit', '10')}", ttl=60)
 def recent_memories():
+    """获取最近的记忆（带缓存和优化）"""
     conn = get_db_conn()
     try:
-        items = app_repo.list_recent(conn, limit=50)
+        limit = int(request.args.get('limit', 10))
+        if limit > 50:  # 限制最大数量
+            limit = 50
+        items = app_repo.list_recent(conn, limit=limit)
         return jsonify({'memories': items})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/memories/search', methods=['POST'])
+@rate_limit
+@performance_monitor
+def search_memories_advanced():
+    """高级记忆搜索"""
+    try:
+        data = request.get_json()
+        query = data.get('query', '').strip()
+        tags = data.get('tags', [])
+        date_from = data.get('date_from')
+        date_to = data.get('date_to')
+        limit = min(int(data.get('limit', 20)), 100)  # 最大100条
+
+        if not query and not tags:
+            return jsonify({'error': '请提供搜索关键词或标签'}), 400
+
+        conn = get_db_conn()
+
+        # 构建搜索条件
+        search_conditions = {
+            'query': query,
+            'tags': tags,
+            'date_from': date_from,
+            'date_to': date_to,
+            'limit': limit
+        }
+
+        results = app_repo.search_advanced(conn, search_conditions)
+        return jsonify({'results': results, 'total': len(results)})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/tags', methods=['GET'])
+@rate_limit
+@performance_monitor
+@cached_response(lambda: "all_tags", ttl=300)  # 5分钟缓存
+def get_all_tags():
+    """获取所有标签"""
+    try:
+        conn = get_db_conn()
+        # 如果没有get_all_tags方法，我们可以从现有记忆中提取
+        tags = []
+        try:
+            tags = app_repo.get_all_tags(conn)
+        except AttributeError:
+            # 回退方案：从最近记忆中提取标签
+            recent = app_repo.list_recent(conn, limit=100)
+            tag_set = set()
+            for item in recent:
+                if 'tags' in item and item['tags']:
+                    tag_set.update(item['tags'])
+            tags = list(tag_set)
+        return jsonify({'tags': tags})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/stats', methods=['GET'])
+@rate_limit
+@performance_monitor
+@cached_response(lambda: "stats", ttl=60)  # 1分钟缓存
+def get_stats():
+    """获取统计信息"""
+    try:
+        conn = get_db_conn()
+        # 基本统计信息
+        total_memories = len(app_repo.list_recent(conn, limit=1000))
+        recent_memories = app_repo.list_recent(conn, limit=10)
+
+        # 计算标签统计
+        tag_counts = {}
+        for memory in recent_memories:
+            if 'tags' in memory and memory['tags']:
+                for tag in memory['tags']:
+                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+        stats = {
+            'total_memories': total_memories,
+            'recent_count': len(recent_memories),
+            'top_tags': sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10],
+            'last_updated': recent_memories[0]['timestamp'] if recent_memories else None
+        }
+
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/memory/<int:memory_id>', methods=['GET'])
+@rate_limit
+@performance_monitor
 def get_memory(memory_id):
     conn = get_db_conn()
     try:
@@ -674,6 +884,41 @@ def get_memory(memory_id):
         if not m:
             return jsonify({'error': '记忆不存在'}), 404
         return jsonify({'memory': m})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/memory/<int:memory_id>', methods=['PUT'])
+@rate_limit
+@performance_monitor
+def update_memory(memory_id):
+    """更新记忆"""
+    try:
+        data = request.get_json()
+        content = data.get('content', '').strip()
+        if not content:
+            return jsonify({'error': '内容不能为空'}), 400
+
+        conn = get_db_conn()
+        app_repo.update_memory(conn, memory_id, content)
+        # 清除相关缓存
+        response_cache.cache = {k: v for k, v in response_cache.cache.items()
+                               if not k.startswith(f"recent_memories") and not k.startswith("stats")}
+        return jsonify({'success': True, 'message': '记忆更新成功'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/memory/<int:memory_id>', methods=['DELETE'])
+@rate_limit
+@performance_monitor
+def delete_memory(memory_id):
+    """删除记忆"""
+    try:
+        conn = get_db_conn()
+        app_repo.delete_memory(conn, memory_id)
+        # 清除相关缓存
+        response_cache.cache = {k: v for k, v in response_cache.cache.items()
+                               if not k.startswith(f"recent_memories") and not k.startswith("stats")}
+        return jsonify({'success': True, 'message': '记忆删除成功'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
