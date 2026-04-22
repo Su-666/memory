@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>暖暖 - 记忆助手</title>
     <style>
         :root {
@@ -34,6 +34,7 @@
             font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif;
             background: linear-gradient(160deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
             min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             flex-direction: column;
             color: var(--text-primary);
@@ -126,6 +127,8 @@
             width: 100%;
             margin: 0 auto;
             padding: 24px 20px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .chat-container {
@@ -343,6 +346,10 @@
             background: #ffffff;
             color: var(--text-primary);
             transition: all 0.25s ease;
+            /* 防止iOS输入时缩放页面 */
+            font-size: 16px;
+            -webkit-appearance: none;
+            appearance: none;
         }
 
         .command-input:focus {
@@ -638,6 +645,12 @@
                 flex-direction: column;
                 gap: 12px;
                 padding: 14px 16px;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                z-index: 100;
+                background: linear-gradient(135deg, #e0f2ee 0%, #d5ebe7 50%, #c8e6e0 100%);
             }
             .header-left {
                 align-items: center;
@@ -648,10 +661,10 @@
                 padding: 4px 10px;
             }
             .header-title {
-                font-size: 28px;
+                font-size: 24px;
             }
             .header-subtitle {
-                font-size: 12px;
+                font-size: 11px;
             }
             .header-right {
                 width: 100%;
@@ -659,26 +672,32 @@
                 gap: 8px;
             }
             .btn {
-                padding: 8px 14px;
-                font-size: 13px;
+                padding: 6px 12px;
+                font-size: 12px;
             }
             .main {
-                padding: 12px 10px;
+                padding: 0;
                 flex: 1;
                 display: flex;
                 flex-direction: column;
+                height: 100vh;
+                height: 100dvh;
             }
             .chat-container {
                 flex: 1;
                 min-height: 0;
                 display: flex;
                 flex-direction: column;
+                border-radius: 0;
+                border: none;
+                margin-top: 90px;
             }
             .chat-view {
                 flex: 1;
                 min-height: 0;
-                max-height: calc(100vh - 280px);
+                max-height: none;
                 padding: 14px 12px;
+                padding-bottom: 120px;
             }
             .bubble {
                 max-width: 90%;
@@ -689,27 +708,35 @@
                 font-size: 11px;
             }
             .input-area {
-                gap: 10px;
-                padding: 12px;
-                position: sticky;
+                position: fixed;
                 bottom: 0;
-                background: linear-gradient(180deg, #f8fcfb 0%, #f4f9f8 100%);
+                left: 0;
+                right: 0;
+                gap: 8px;
+                padding: 10px 12px;
+                z-index: 99;
+                background: rgba(248, 252, 251, 0.95);
+                backdrop-filter: blur(10px);
+                -webkit-backdrop-filter: blur(10px);
+                border-top: 1px solid var(--card-border);
             }
             .command-input {
                 padding: 12px 14px;
-                font-size: 15px;
+                font-size: 16px;
                 min-height: 48px;
+                max-height: 120px;
+                overflow-y: auto;
             }
             .btn-send {
-                width: 50px;
-                height: 50px;
-                border-radius: 25px;
-                font-size: 20px;
+                width: 48px;
+                height: 48px;
+                border-radius: 24px;
+                font-size: 18px;
                 flex-shrink: 0;
             }
             .btn-voice {
-                width: 46px;
-                height: 46px;
+                width: 44px;
+                height: 44px;
                 font-size: 18px;
                 flex-shrink: 0;
             }
@@ -717,23 +744,23 @@
                 display: none;
             }
             .welcome {
-                padding: 40px 20px;
+                padding: 20px 16px;
             }
             .welcome-icon {
-                font-size: 52px;
+                font-size: 44px;
             }
             .welcome h2 {
-                font-size: 24px;
+                font-size: 20px;
             }
             .welcome p {
-                font-size: 14px;
+                font-size: 13px;
             }
             .welcome .tips {
                 max-width: 100%;
             }
             .welcome .tip-item {
-                padding: 12px 14px;
-                font-size: 13px;
+                padding: 10px 12px;
+                font-size: 12px;
             }
             .result-item {
                 padding: 12px;
@@ -752,8 +779,8 @@
                 flex-wrap: wrap;
             }
             .btn-small {
-                padding: 6px 12px;
-                font-size: 12px;
+                padding: 5px 10px;
+                font-size: 11px;
             }
             .file-pending-area {
                 margin: 0 10px 10px 10px;
@@ -765,16 +792,26 @@
             #audio-indicator .mic-icon {
                 font-size: 40px;
             }
+
+            /* 聊天区域底部留出输入框空间 */
+            .chat-view {
+                scroll-padding-bottom: 20px;
+            }
+
+            /* 输入法弹出时保持页面布局 */
+            .chat-container {
+                contain: layout style;
+            }
         }
 
         /* 安全区域适配 - iPhone刘海屏 */
         @supports (padding-bottom: env(safe-area-inset-bottom)) {
             @media (max-width: 700px) {
                 .input-area {
-                    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+                    padding-bottom: calc(10px + env(safe-area-inset-bottom));
                 }
                 .main {
-                    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+                    padding-bottom: env(safe-area-inset-bottom);
                 }
             }
         }
@@ -1343,7 +1380,7 @@
         async function startRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = (e) => {
@@ -1352,8 +1389,8 @@
 
                 mediaRecorder.onstop = async () => {
                     const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    await recognizeAudio(audioBlob);
                     stream.getTracks().forEach(track => track.stop());
+                    await convertAndRecognize(audioBlob);
                 };
 
                 mediaRecorder.start();
@@ -1364,6 +1401,79 @@
 
             } catch (e) {
                 alert('无法访问麦克风: ' + e.message);
+            }
+        }
+
+        // 将 WebM 转换为 WAV 格式（百度ASR需要WAV）
+        async function convertWebMToWAV(webmBlob) {
+            const arrayBuffer = await webmBlob.arrayBuffer();
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+            // 获取PCM数据
+            const wavData = audioBufferToWav(audioContext, audioBuffer);
+            audioContext.close();
+            return new Blob([wavData], { type: 'audio/wav' });
+        }
+
+        // 将 AudioBuffer 转换为 WAV 格式
+        function audioBufferToWav(audioContext, audioBuffer) {
+            const numChannels = 1; // 单声道
+            const sampleRate = audioBuffer.sampleRate;
+            const format = 1; // PCM
+            const bitDepth = 16;
+
+            const bytesPerSample = bitDepth / 8;
+            const blockAlign = numChannels * bytesPerSample;
+            const numFrames = audioBuffer.length;
+            const dataSize = numFrames * blockAlign;
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+
+            // RIFF header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            // fmt chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, format, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * blockAlign, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitDepth, true);
+            // data chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            // 写入PCM数据（转换为16位有符号整数）
+            const channelData = audioBuffer.getChannelData(0);
+            let offset = 44;
+            for (let i = 0; i < numFrames; i++) {
+                const sample = Math.max(-1, Math.min(1, channelData[i]));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                offset += 2;
+            }
+
+            return buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        async function convertAndRecognize(webmBlob) {
+            setStatus('正在转换音频格式...');
+            try {
+                const wavBlob = await convertWebMToWAV(webmBlob);
+                await recognizeAudio(wavBlob);
+            } catch (e) {
+                console.error('音频转换失败:', e);
+                setStatus('音频转换失败，尝试直接识别...');
+                await recognizeAudio(webmBlob);
             }
         }
 
@@ -1380,7 +1490,9 @@
         async function recognizeAudio(audioBlob) {
             try {
                 const formData = new FormData();
-                formData.append('audio', audioBlob, 'recording.webm');
+                // 百度ASR需要WAV格式
+                const fileName = audioBlob.type === 'audio/wav' ? 'recording.wav' : 'recording.webm';
+                formData.append('audio', audioBlob, fileName);
 
                 const response = await fetch('/api/speech_recognize', {
                     method: 'POST',

@@ -448,6 +448,73 @@ def synthesize_with_qwen(text: str) -> bytes:
     except Exception as e:
         raise RuntimeError(f"百度语音合成失败: {e}")
 
+# 语音识别（百度ASR）
+def recognize_with_baidu(wav_bytes: bytes) -> str:
+    """使用百度语音识别API将音频转为文字"""
+    try:
+        from aip import AipSpeech
+    except ImportError:
+        raise RuntimeError("请先安装百度AIP: pip install baidu-aip")
+
+    app_id = os.getenv("BAIDU_APP_ID", "").strip()
+    api_key = os.getenv("BAIDU_API_KEY", "").strip()
+    secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
+
+    if not all([app_id, api_key, secret_key]):
+        raise RuntimeError("请配置百度语音 API（APP_ID、API_KEY、SECRET_KEY）")
+
+    try:
+        client = AipSpeech(app_id, api_key, secret_key)
+
+        # 保存为临时WAV文件供百度API使用
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+            tmp.write(wav_bytes)
+            tmp_path = tmp.name
+
+        try:
+            with open(tmp_path, 'rb') as f:
+                result = client.asr(f.read(), 'wav', 16000, {
+                    'dev_pid': 1537,  # 识别中文
+                })
+        finally:
+            import os as os_module
+            os_module.unlink(tmp_path)
+
+        if 'result' in result and result['result']:
+            return result['result'][0].strip()
+        elif 'err_msg' in result:
+            raise RuntimeError(f"百度语音识别失败: {result.get('err_msg', '未知错误')}")
+        else:
+            return ""
+    except Exception as e:
+        raise RuntimeError(f"语音识别失败: {e}")
+
+@app.route('/api/speech_recognize', methods=['POST'])
+def speech_recognize():
+    """处理前端上传的语音，识别为文字"""
+    if 'audio' not in request.files:
+        return jsonify({'error': '请上传音频文件'}), 400
+
+    audio_file = request.files['audio']
+    try:
+        # 读取音频数据
+        audio_data = audio_file.read()
+
+        if len(audio_data) < 1000:
+            return jsonify({'error': '音频数据太短'}), 400
+
+        # 尝试识别
+        text = recognize_with_baidu(audio_data)
+
+        if text:
+            return jsonify({'text': text, 'success': True})
+        else:
+            return jsonify({'error': '未能识别到文字，请重试'}), 400
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/speech_synthesize', methods=['POST'])
 def speech_synthesize():
     data = request.get_json()
