@@ -636,37 +636,146 @@
         @media (max-width: 700px) {
             .header {
                 flex-direction: column;
-                gap: 16px;
-                padding: 16px 20px;
+                gap: 12px;
+                padding: 14px 16px;
+            }
+            .header-left {
+                align-items: center;
+                text-align: center;
+            }
+            .header-badge {
+                font-size: 9px;
+                padding: 4px 10px;
+            }
+            .header-title {
+                font-size: 28px;
+            }
+            .header-subtitle {
+                font-size: 12px;
             }
             .header-right {
                 width: 100%;
                 justify-content: center;
+                gap: 8px;
+            }
+            .btn {
+                padding: 8px 14px;
+                font-size: 13px;
             }
             .main {
-                padding: 16px 12px;
+                padding: 12px 10px;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+            }
+            .chat-container {
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
             }
             .chat-view {
-                max-height: calc(100vh - 300px);
+                flex: 1;
+                min-height: 0;
+                max-height: calc(100vh - 280px);
+                padding: 14px 12px;
             }
             .bubble {
-                max-width: 92%;
+                max-width: 90%;
+                padding: 12px 14px;
+                font-size: 15px;
+            }
+            .bubble-assistant .bubble-name {
+                font-size: 11px;
             }
             .input-area {
-                gap: 8px;
+                gap: 10px;
                 padding: 12px;
+                position: sticky;
+                bottom: 0;
+                background: linear-gradient(180deg, #f8fcfb 0%, #f4f9f8 100%);
             }
             .command-input {
                 padding: 12px 14px;
                 font-size: 15px;
+                min-height: 48px;
             }
             .btn-send {
-                width: 48px;
-                height: 48px;
+                width: 50px;
+                height: 50px;
+                border-radius: 25px;
+                font-size: 20px;
+                flex-shrink: 0;
             }
             .btn-voice {
-                width: 44px;
-                height: 44px;
+                width: 46px;
+                height: 46px;
+                font-size: 18px;
+                flex-shrink: 0;
+            }
+            .status-bar {
+                display: none;
+            }
+            .welcome {
+                padding: 40px 20px;
+            }
+            .welcome-icon {
+                font-size: 52px;
+            }
+            .welcome h2 {
+                font-size: 24px;
+            }
+            .welcome p {
+                font-size: 14px;
+            }
+            .welcome .tips {
+                max-width: 100%;
+            }
+            .welcome .tip-item {
+                padding: 12px 14px;
+                font-size: 13px;
+            }
+            .result-item {
+                padding: 12px;
+            }
+            .result-title {
+                font-size: 13px;
+            }
+            .result-summary {
+                font-size: 12px;
+            }
+            .result-image {
+                max-width: 100%;
+                max-height: 150px;
+            }
+            .result-actions {
+                flex-wrap: wrap;
+            }
+            .btn-small {
+                padding: 6px 12px;
+                font-size: 12px;
+            }
+            .file-pending-area {
+                margin: 0 10px 10px 10px;
+            }
+            #audio-indicator {
+                padding: 28px 40px;
+                font-size: 18px;
+            }
+            #audio-indicator .mic-icon {
+                font-size: 40px;
+            }
+        }
+
+        /* 安全区域适配 - iPhone刘海屏 */
+        @supports (padding-bottom: env(safe-area-inset-bottom)) {
+            @media (max-width: 700px) {
+                .input-area {
+                    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+                }
+                .main {
+                    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+                }
             }
         }
     </style>
