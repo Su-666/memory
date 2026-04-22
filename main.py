@@ -673,6 +673,114 @@ def speech_synthesize():
     except Exception as e:
         return jsonify({'error': f'语音合成失败: {str(e)}'}), 500
 
+@app.route('/api/voice_dialogue', methods=['POST'])
+def voice_dialogue():
+    """语音对话API - 接收语音，处理，返回回复语音"""
+    if 'audio' not in request.files:
+        return jsonify({'error': '请上传音频文件'}), 400
+
+    audio_file = request.files['audio']
+    try:
+        # 读取音频数据
+        audio_data = audio_file.read()
+
+        if len(audio_data) < 1000:
+            return jsonify({'error': '音频数据太短'}), 400
+
+        # 语音识别
+        user_text = recognize_with_baidu(audio_data)
+        if not user_text:
+            return jsonify({'error': '未能识别到文字，请重试'}), 400
+
+        # 初始化数据库和vault
+        conn = init_vault()
+        vault_root = get_vault_root()
+
+        # 判断意图
+        intent = determine_intent(user_text)
+
+        response_text = ""
+        saved = False
+
+        if intent == "search":
+            query = extract_search_query(user_text)
+            search_queries = [query]
+            keywords = ["手机号", "电话", "密码", "地址", "生日"]
+            for kw in keywords:
+                if kw in query and kw not in search_queries:
+                    search_queries.append(kw)
+            results = []
+            seen_ids = set()
+            for sq in search_queries:
+                items = app_search.search(conn, query=sq, sort_mode="relevant", limit=20)
+                for item in items:
+                    item_id = item.get('id')
+                    if item_id not in seen_ids:
+                        seen_ids.add(item_id)
+                        results.append(item)
+            if not results:
+                response_text = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
+                if response_text:
+                    SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
+                    SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response_text})
+                else:
+                    response_text = '我没有找到相关内容，我们可以聊聊其他话题。'
+            else:
+                ans = app_answer(user_text, results[:8])
+                if ans.answer:
+                    top_time = str(results[0].get("time", "") or "").strip()
+                    response_text = ans.answer
+                    if top_time:
+                        response_text += f"\n（记忆时间：{top_time}）"
+                else:
+                    response_text = f'找到 {len(results)} 条相关记忆。'
+
+        elif intent == "chat":
+            need_wait, pending_text = check_save_pending(user_text)
+            if need_wait:
+                response_text = '好的，请说具体内容。'
+            else:
+                SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
+                response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
+                if response:
+                    SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
+                else:
+                    response = "我在。你想让我帮你查什么，还是帮我记住什么？"
+                response_text = response
+
+        elif intent == "save":
+            need_wait, pending_text = check_save_pending(user_text)
+            if need_wait:
+                response_text = '好的，请说具体内容。'
+            else:
+                try:
+                    title, summary = build_memory_metadata(user_text)
+                    app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
+                    response_text = '好的，我记住了。'
+                    saved = True
+                except Exception as e:
+                    response_text = f'保存失败: {str(e)}'
+
+        # 生成语音回复
+        try:
+            wav_bytes = synthesize_with_qwen(response_text[:300])
+            audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+            return jsonify({
+                'user_text': user_text,
+                'response_text': response_text,
+                'audio': audio_b64,
+                'saved': saved
+            })
+        except Exception as e:
+            return jsonify({
+                'user_text': user_text,
+                'response_text': response_text,
+                'error': f'语音合成失败: {str(e)}'
+            }), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 def call_llm_chat(user_query: str, history: list) -> str:
     api_key = os.getenv("ZHIPU_API_KEY", "").strip()
     if not api_key:
@@ -852,8 +960,10 @@ def get_stats():
     """获取统计信息"""
     try:
         conn = get_db_conn()
-        # 基本统计信息
-        total_memories = len(app_repo.list_recent(conn, limit=1000))
+        # 获取总记忆数
+        total_row = conn.execute("SELECT COUNT(*) as count FROM memories").fetchone()
+        total_memories = int(total_row["count"]) if total_row else 0
+        
         recent_memories = app_repo.list_recent(conn, limit=10)
 
         # 计算标签统计
@@ -867,7 +977,7 @@ def get_stats():
             'total_memories': total_memories,
             'recent_count': len(recent_memories),
             'top_tags': sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10],
-            'last_updated': recent_memories[0]['timestamp'] if recent_memories else None
+            'last_updated': recent_memories[0].get('time') if recent_memories else None
         }
 
         return jsonify(stats)
