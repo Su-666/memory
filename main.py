@@ -74,6 +74,12 @@ def load_env():
 
 load_env()
 
+# 启动时打印百度API配置状态（调试用）
+print("[STARTUP] Baidu API Configuration Status:", file=sys.stderr, flush=True)
+print(f"[STARTUP] BAIDU_APP_ID: {'✓ Set' if os.getenv('BAIDU_APP_ID', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
+print(f"[STARTUP] BAIDU_API_KEY: {'✓ Set' if os.getenv('BAIDU_API_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
+print(f"[STARTUP] BAIDU_SECRET_KEY: {'✓ Set' if os.getenv('BAIDU_SECRET_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
+
 # 数据库和 Vault
 def get_db_conn():
     db_path = DATA_DIR / "agent.db"
@@ -428,8 +434,18 @@ def synthesize_with_qwen(text: str) -> bytes:
     app_id = os.getenv("BAIDU_APP_ID", "").strip()
     api_key_baidu = os.getenv("BAIDU_API_KEY", "").strip()
     secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
+    
+    print(f"[TTS DEBUG] APP_ID={bool(app_id)}, API_KEY={bool(api_key_baidu)}, SECRET={bool(secret_key)}", file=sys.stderr, flush=True)
+    
     if not all([app_id, api_key_baidu, secret_key]):
-        raise RuntimeError("请配置百度语音 API")
+        missing = []
+        if not app_id:
+            missing.append("BAIDU_APP_ID")
+        if not api_key_baidu:
+            missing.append("BAIDU_API_KEY")
+        if not secret_key:
+            missing.append("BAIDU_SECRET_KEY")
+        raise RuntimeError(f"百度语音API配置不完整，缺失: {', '.join(missing)}")
     try:
         client = AipSpeech(app_id, api_key_baidu, secret_key)
         text = text.strip()[:300]
@@ -460,8 +476,17 @@ def recognize_with_baidu(wav_bytes: bytes) -> str:
     api_key = os.getenv("BAIDU_API_KEY", "").strip()
     secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
 
+    print(f"[ASR DEBUG] APP_ID={bool(app_id)}, API_KEY={bool(api_key)}, SECRET={bool(secret_key)}", file=sys.stderr, flush=True)
+
     if not all([app_id, api_key, secret_key]):
-        raise RuntimeError("请配置百度语音 API（APP_ID、API_KEY、SECRET_KEY）")
+        missing = []
+        if not app_id:
+            missing.append("BAIDU_APP_ID")
+        if not api_key:
+            missing.append("BAIDU_API_KEY")
+        if not secret_key:
+            missing.append("BAIDU_SECRET_KEY")
+        raise RuntimeError(f"百度语音API配置不完整，缺失: {', '.join(missing)}")
 
     try:
         client = AipSpeech(app_id, api_key, secret_key)
