@@ -1035,7 +1035,7 @@
             </div>
             <div class="input-area" id="drop-area">
                 <textarea class="command-input" id="command-input" placeholder="跟我说说~（回车发送）" onkeypress="handleKeyPress(event)" rows="1" style="resize: none; overflow: hidden;"></textarea>
-                <button class="btn-voice" id="voice-btn" title="点击录音 | 长按说话" onclick="toggleVoice()" ontouchstart="voiceLongPressStart(event)" ontouchend="voiceLongPressEnd(event)" onmousedown="voiceLongPressStart(event)" onmouseup="voiceLongPressEnd(event)">🎤</button>
+                <button class="btn-voice" id="voice-btn" title="点击开始语音对话" onclick="toggleVoice()" ontouchstart="voiceLongPressStart(event)" ontouchend="voiceLongPressEnd(event)" onmousedown="voiceLongPressStart(event)" onmouseup="voiceLongPressEnd(event)">🎤</button>
                 <button class="btn-send" id="send-btn" title="发送" onclick="sendMessage()">➜</button>
             </div>
         </div>
@@ -1259,7 +1259,7 @@
                 }
 
                 // 语音模式下自动朗读回复
-                if (data.text && (voiceReplyEnabled || voiceAutoRestart)) {
+                if (data.text && voiceVadActive) {
                     speakText(data.text);
                 }
                 voiceReplyEnabled = false;
@@ -1566,72 +1566,34 @@
             mediaRecorderSupported = false;
         }
 
-        // ========== 语音对话系统 ==========
-        // 状态：idle → recording → processing → speaking → listening (循环)
-        let voiceState = 'idle'; // idle, recording, processing, speaking, listening
-        let voiceStream = null;
-        let voiceAutoRestart = false; // 是否在朗读结束后自动开始下一轮录音
+        // ========== 语音对话系统 v3 - 实时VAD连续对话 ==========
+        // 点击🎤 → 进入语音模式 → VAD自动检测说话 → 录音 → 自动停止 → 识别 → 朗读 → VAD监听...
+        // 再点击🎤 → 退出语音模式
+        // 朗读时说话 → 自动打断并开始新录音
+        let voiceState = 'idle'; // idle, listening, recording, processing, speaking
+        let voiceMicStream = null;      // 持续的麦克风流
+        let voiceAudioContext = null;   // Web Audio API 上下文
+        let voiceAnalyser = null;       // 音频分析器
+        let voiceRecorder = null;       // MediaRecorder
+        let voiceVadActive = false;     // VAD循环是否运行中
+        let voiceVadTimeout = null;     // 静音检测定时器
+        let voiceEnergyBuffer = [];     // 音频能量缓冲区
+        const VAD_THRESHOLD = 0.02;     // 语音检测阈值
+        const VAD_SILENCE_MS = 1000;    // 静音超过此时间停止录音
+        const VAD_MIN_RECORD_MS = 800;  // 最少录音时间
+        let voiceRecordStartTime = 0;   // 录音开始时间
 
+        // 点击语音按钮
         async function toggleVoice() {
-            if (voiceState === 'recording') {
-                // 正在录音 → 停止
-                stopVoiceRecording();
-            } else if (voiceState === 'idle') {
-                // 进入语音对话模式
-                voiceAutoRestart = true;
-                await startVoiceRecording();
+            if (voiceState === 'idle') {
+                await enterVoiceMode();
             } else {
-                // 其他状态 → 退出语音模式
                 exitVoiceMode();
             }
         }
 
-        // 长按：按住说话，松开发送（手机端友好）
-        let longPressTimer = null;
-        let isLongPress = false;
-
-        async function voiceLongPressStart(e) {
-            if (e) e.preventDefault();
-            isLongPress = false;
-            longPressTimer = setTimeout(async () => {
-                isLongPress = true;
-                if (voiceState === 'idle') {
-                    voiceAutoRestart = false; // 长按单次录音，不自动循环
-                    await startVoiceRecording();
-                }
-            }, 300);
-        }
-
-        function voiceLongPressEnd(e) {
-            if (e) e.preventDefault();
-            if (longPressTimer) {
-                clearTimeout(longPressTimer);
-                longPressTimer = null;
-            }
-            if (isLongPress && voiceState === 'recording') {
-                stopVoiceRecording();
-                isLongPress = false;
-            }
-        }
-
-        // 退出语音模式
-        function exitVoiceMode() {
-            voiceState = 'idle';
-            voiceAutoRestart = false;
-            isVoiceMode = false;
-            isRecording = false;
-            if (voiceStream) {
-                voiceStream.getTracks().forEach(t => t.stop());
-                voiceStream = null;
-            }
-            document.getElementById('audio-indicator').style.display = 'none';
-            updateVoiceButton();
-            setStatus('语音模式已退出');
-            setTimeout(() => setStatus('准备就绪'), 1500);
-        }
-
-        // 开始录音
-        async function startVoiceRecording() {
+        // 进入语音对话模式
+        async function enterVoiceMode() {
             detectAudioSupport();
             if (!mediaRecorderSupported) {
                 setStatus('当前浏览器不支持语音录制');
@@ -1639,64 +1601,215 @@
             }
 
             try {
-                voiceStream = await navigator.mediaDevices.getUserMedia({
+                // 获取麦克风流（持续保持）
+                voiceMicStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
-                        autoGainControl: true
+                        autoGainControl: true,
+                        sampleRate: 16000
                     }
                 });
 
-                mediaRecorder = new MediaRecorder(voiceStream, {
+                // 初始化 Web Audio API 用于 VAD
+                voiceAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (voiceAudioContext.state === 'suspended') {
+                    await voiceAudioContext.resume();
+                }
+
+                voiceAnalyser = voiceAudioContext.createAnalyser();
+                voiceAnalyser.fftSize = 512;
+                voiceAnalyser.smoothingTimeConstant = 0.3;
+
+                const source = voiceAudioContext.createMediaStreamSource(voiceMicStream);
+                source.connect(voiceAnalyser);
+
+                voiceState = 'listening';
+                isVoiceMode = true;
+                voiceVadActive = true;
+                updateVoiceButton();
+                setStatus('👂 语音模式 · 请说话...');
+
+                // 启动 VAD 监听循环
+                vadLoop();
+
+            } catch (e) {
+                console.error('语音模式启动失败:', e);
+                setStatus('无法访问麦克风: ' + e.message);
+                exitVoiceMode();
+            }
+        }
+
+        // 退出语音模式
+        function exitVoiceMode() {
+            voiceVadActive = false;
+            voiceState = 'idle';
+            isVoiceMode = false;
+            isRecording = false;
+
+            if (voiceVadTimeout) {
+                clearTimeout(voiceVadTimeout);
+                voiceVadTimeout = null;
+            }
+
+            if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+                try { voiceRecorder.stop(); } catch(e) {}
+            }
+
+            if (voiceMicStream) {
+                voiceMicStream.getTracks().forEach(t => t.stop());
+                voiceMicStream = null;
+            }
+
+            if (voiceAudioContext) {
+                voiceAudioContext.close();
+                voiceAudioContext = null;
+            }
+
+            voiceAnalyser = null;
+            voiceEnergyBuffer = [];
+
+            // 停止播放
+            if (window._currentAudio) {
+                window._currentAudio.pause();
+                window._currentAudio = null;
+            }
+
+            document.getElementById('audio-indicator').style.display = 'none';
+            updateVoiceButton();
+            setStatus('语音模式已退出');
+            setTimeout(() => setStatus('准备就绪'), 1500);
+        }
+
+        // VAD 检测循环
+        function vadLoop() {
+            if (!voiceVadActive) return;
+
+            if (voiceState === 'listening') {
+                const hasVoice = checkVoiceActivity();
+
+                if (hasVoice) {
+                    // 检测到语音，开始录音
+                    startRecordingFromVAD();
+                } else {
+                    // 继续监听
+                    requestAnimationFrame(vadLoop);
+                }
+            } else if (voiceState === 'recording') {
+                // 录音中，检查是否静音
+                const hasVoice = checkVoiceActivity();
+
+                if (hasVoice) {
+                    // 有声音，重置静音定时器
+                    if (voiceVadTimeout) {
+                        clearTimeout(voiceVadTimeout);
+                        voiceVadTimeout = null;
+                    }
+                } else if (!voiceVadTimeout) {
+                    // 开始静音检测
+                    const recordDuration = Date.now() - voiceRecordStartTime;
+                    const silenceDelay = Math.max(300, VAD_SILENCE_MS - (recordDuration < 2000 ? 400 : 0));
+
+                    voiceVadTimeout = setTimeout(() => {
+                        if (voiceState === 'recording') {
+                            stopRecordingFromVAD();
+                        }
+                        voiceVadTimeout = null;
+                    }, silenceDelay);
+                }
+
+                requestAnimationFrame(vadLoop);
+            }
+            // processing / speaking 状态不跑 VAD 循环
+        }
+
+        // 检查是否有语音活动
+        function checkVoiceActivity() {
+            if (!voiceAnalyser) return false;
+
+            const bufferLength = voiceAnalyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            voiceAnalyser.getByteFrequencyData(dataArray);
+
+            // 计算音频能量（关注人声频率 85-4000Hz）
+            let sum = 0;
+            const voiceEnd = Math.min(bufferLength, Math.floor(bufferLength * 0.5));
+            for (let i = 0; i < voiceEnd; i++) {
+                sum += dataArray[i] * dataArray[i];
+            }
+            const rms = Math.sqrt(sum / voiceEnd) / 128.0;
+
+            // 滑动平均
+            voiceEnergyBuffer.push(rms);
+            if (voiceEnergyBuffer.length > 6) {
+                voiceEnergyBuffer.shift();
+            }
+
+            const avgEnergy = voiceEnergyBuffer.reduce((a, b) => a + b, 0) / voiceEnergyBuffer.length;
+            return avgEnergy > VAD_THRESHOLD;
+        }
+
+        // VAD 触发开始录音
+        function startRecordingFromVAD() {
+            if (voiceState !== 'listening' || !voiceMicStream) return;
+
+            try {
+                audioChunks = [];
+                voiceRecorder = new MediaRecorder(voiceMicStream, {
                     mimeType: selectedMimeType || 'audio/webm'
                 });
-                audioChunks = [];
 
-                mediaRecorder.ondataavailable = (e) => {
+                voiceRecorder.ondataavailable = (e) => {
                     if (e.data.size > 0) audioChunks.push(e.data);
                 };
 
-                mediaRecorder.onstop = async () => {
-                    voiceStream.getTracks().forEach(t => t.stop());
-                    voiceStream = null;
+                voiceRecorder.onstop = async () => {
                     if (audioChunks.length > 0) {
                         await processVoiceRecording();
                     } else {
-                        voiceState = voiceAutoRestart ? 'listening' : 'idle';
-                        updateVoiceButton();
-                        if (voiceAutoRestart) {
-                            setTimeout(() => startVoiceRecording(), 300);
+                        // 没有数据，回到监听
+                        if (voiceVadActive) {
+                            voiceState = 'listening';
+                            updateVoiceButton();
+                            setStatus('👂 语音模式 · 请说话...');
+                            requestAnimationFrame(vadLoop);
                         }
                     }
                 };
 
-                mediaRecorder.start(100);
+                voiceRecorder.start(50);
                 voiceState = 'recording';
+                voiceRecordStartTime = Date.now();
                 isRecording = true;
-                isVoiceMode = true;
 
                 updateVoiceButton();
-                setStatus('🎙️ 录音中...');
+                setStatus('🎙️ 正在听你说...');
                 document.getElementById('audio-indicator').style.display = 'block';
                 document.getElementById('audio-indicator').innerHTML = `
                     <div class="mic-icon">🎙️</div>
-                    <div>录音中...</div>
-                    <div class="sub">说完后点击麦克风停止</div>
+                    <div>正在听...</div>
+                    <div class="sub">说完停一下，我自动处理</div>
                 `;
 
             } catch (e) {
-                console.error('麦克风启动失败:', e);
-                setStatus('无法访问麦克风: ' + e.message);
-                voiceState = 'idle';
+                console.error('录音启动失败:', e);
+                voiceState = 'listening';
                 updateVoiceButton();
             }
         }
 
-        // 停止录音
-        function stopVoiceRecording() {
-            if (voiceState !== 'recording' || !mediaRecorder) return;
+        // VAD 触发停止录音
+        function stopRecordingFromVAD() {
+            if (voiceState !== 'recording' || !voiceRecorder) return;
+
+            const recordDuration = Date.now() - voiceRecordStartTime;
+            if (recordDuration < VAD_MIN_RECORD_MS) {
+                // 录音时间太短，继续录音
+                return;
+            }
+
             try {
-                mediaRecorder.stop();
+                voiceRecorder.stop();
                 voiceState = 'processing';
                 isRecording = false;
 
@@ -1709,10 +1822,10 @@
                 updateVoiceButton();
             } catch (e) {
                 console.error('停止录音失败:', e);
-                voiceState = 'idle';
+                voiceState = 'listening';
                 isRecording = false;
-                document.getElementById('audio-indicator').style.display = 'none';
                 updateVoiceButton();
+                if (voiceVadActive) requestAnimationFrame(vadLoop);
             }
         }
 
@@ -1740,13 +1853,13 @@
 
                 if (data.error) {
                     document.getElementById('audio-indicator').style.display = 'none';
-                    setStatus('识别失败: ' + data.error);
-                    addBubble('assistant', '语音识别没成功，要不你打字告诉我吧～');
-                    voiceState = voiceAutoRestart ? 'listening' : 'idle';
-                    updateVoiceButton();
-                    // 连续对话模式下，识别失败后自动重试录音
-                    if (voiceAutoRestart) {
-                        setTimeout(() => startVoiceRecording(), 1000);
+                    setStatus('识别失败');
+                    addBubble('assistant', '没听清呢，再说一次呗~');
+                    if (voiceVadActive) {
+                        voiceState = 'listening';
+                        updateVoiceButton();
+                        setStatus('👂 语音模式 · 请说话...');
+                        requestAnimationFrame(vadLoop);
                     }
                     return;
                 }
@@ -1759,26 +1872,67 @@
 
                     document.getElementById('command-input').value = text;
                     await sendMessage();
-                    setStatus('✅ 语音已发送');
                 } else {
                     document.getElementById('audio-indicator').style.display = 'none';
-                    setStatus('没听清呢，再说一次呗');
-                    voiceState = voiceAutoRestart ? 'listening' : 'idle';
-                    updateVoiceButton();
-                    if (voiceAutoRestart) {
-                        setTimeout(() => startVoiceRecording(), 800);
+                    setStatus('没听清呢');
+                    if (voiceVadActive) {
+                        voiceState = 'listening';
+                        updateVoiceButton();
+                        setStatus('👂 语音模式 · 请说话...');
+                        requestAnimationFrame(vadLoop);
                     }
                 }
 
             } catch (error) {
                 console.error('语音处理失败:', error);
                 document.getElementById('audio-indicator').style.display = 'none';
-                setStatus('语音处理失败');
-                voiceState = voiceAutoRestart ? 'listening' : 'idle';
-                updateVoiceButton();
-                if (voiceAutoRestart) {
-                    setTimeout(() => startVoiceRecording(), 1500);
+                setStatus('处理失败');
+                if (voiceVadActive) {
+                    voiceState = 'listening';
+                    updateVoiceButton();
+                    setStatus('👂 语音模式 · 请说话...');
+                    requestAnimationFrame(vadLoop);
                 }
+            }
+        }
+
+        // 朗读完成后继续监听
+        function continueVoiceLoop() {
+            if (voiceVadActive && voiceState === 'speaking') {
+                voiceState = 'listening';
+                voiceEnergyBuffer = []; // 清空能量缓冲区
+                updateVoiceButton();
+                setStatus('👂 语音模式 · 请说话...');
+                requestAnimationFrame(vadLoop);
+            }
+        }
+
+        // 打断朗读（用户说话时）
+        function interruptSpeaking() {
+            if (voiceState === 'speaking') {
+                // 停止播放
+                if (window._currentAudio) {
+                    window._currentAudio.pause();
+                    window._currentAudio = null;
+                }
+                // 直接进入录音状态
+                voiceState = 'recording';
+                voiceRecordStartTime = Date.now();
+                isRecording = true;
+                audioChunks = [];
+
+                if (voiceRecorder && voiceRecorder.state === 'inactive') {
+                    voiceRecorder.start(50);
+                }
+
+                updateVoiceButton();
+                setStatus('🎙️ 打断中，请说...');
+                document.getElementById('audio-indicator').style.display = 'block';
+                document.getElementById('audio-indicator').innerHTML = `
+                    <div class="mic-icon">🎙️</div>
+                    <div>正在听...</div>
+                    <div class="sub">说完停一下</div>
+                `;
             }
         }
 
@@ -1786,34 +1940,35 @@
         function updateVoiceButton() {
             const voiceBtn = document.getElementById('voice-btn');
             const voiceModeBar = document.getElementById('voice-mode-bar');
+            const barSpan = voiceModeBar.querySelector('span');
 
             if (voiceState === 'recording') {
                 voiceBtn.textContent = '⏹️';
-                voiceBtn.title = '点击停止录音';
+                voiceBtn.title = '正在录音...';
                 voiceBtn.classList.add('recording');
                 voiceModeBar.classList.add('active');
-                voiceModeBar.querySelector('span').textContent = '正在录音 · 点击🎤停止';
+                barSpan.textContent = '正在听你说... 停一下自动处理';
             } else if (voiceState === 'processing') {
                 voiceBtn.textContent = '🔄';
                 voiceBtn.title = '识别中...';
                 voiceBtn.classList.add('recording');
                 voiceModeBar.classList.add('active');
-                voiceModeBar.querySelector('span').textContent = '正在识别语音...';
+                barSpan.textContent = '正在识别语音...';
             } else if (voiceState === 'speaking') {
                 voiceBtn.textContent = '🔊';
-                voiceBtn.title = '正在朗读回复...';
+                voiceBtn.title = '正在朗读...说话可打断';
                 voiceBtn.classList.add('recording');
                 voiceModeBar.classList.add('active');
-                voiceModeBar.querySelector('span').textContent = '正在朗读 · 说完自动开始录音';
-            } else if (voiceState === 'listening' || voiceAutoRestart) {
+                barSpan.textContent = '正在朗读 · 说话可以打断我';
+            } else if (voiceState === 'listening') {
                 voiceBtn.textContent = '🎤';
-                voiceBtn.title = '语音对话模式 · 点击退出';
+                voiceBtn.title = '语音模式 · 点击退出';
                 voiceBtn.classList.remove('recording');
                 voiceBtn.style.borderColor = '#10b981';
                 voiceBtn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
                 voiceBtn.style.color = '#065f46';
                 voiceModeBar.classList.add('active');
-                voiceModeBar.querySelector('span').textContent = '语音对话模式 · 点击🎤开始说话 · 再点退出';
+                barSpan.textContent = '语音模式 · 请说话 · 点击🎤退出';
             } else {
                 voiceBtn.textContent = '🎤';
                 voiceBtn.title = '点击开始语音对话';
@@ -1822,6 +1977,29 @@
                 voiceBtn.style.background = '';
                 voiceBtn.style.color = '';
                 voiceModeBar.classList.remove('active');
+            }
+        }
+
+        // 长按：按住说话，松开发送（单次录音模式）
+        let longPressTimer = null;
+        let isLongPress = false;
+
+        async function voiceLongPressStart(e) {
+            if (e) e.preventDefault();
+            isLongPress = false;
+            longPressTimer = setTimeout(async () => {
+                isLongPress = true;
+                if (voiceState === 'idle') {
+                    await enterVoiceMode();
+                }
+            }, 400);
+        }
+
+        function voiceLongPressEnd(e) {
+            if (e) e.preventDefault();
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
             }
         }
 
@@ -2100,10 +2278,18 @@
 
         async function speakText(text) {
             try {
-                // 清理文本：去掉换行、括号内容、URL
-                const cleanText = text.replace(/\n/g, ' ').replace(/（[^）]+）/g, '').replace(/https?:\/\/\S+/g, '').trim();
-                if (!cleanText) return;
-                
+                let cleanText = text.replace(/\n/g, ' ')
+                    .replace(/（[^）]+）/g, '')
+                    .replace(/https?:\/\/\S+/g, '')
+                    .replace(/\*\*/g, '')
+                    .replace(/[#*`\-_]/g, '')
+                    .trim();
+                if (!cleanText) {
+                    continueVoiceLoop();
+                    return;
+                }
+                cleanText = cleanText.slice(0, 280);
+
                 const response = await fetch('/api/speech_synthesize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2113,70 +2299,65 @@
                 const data = await response.json();
                 if (data.error) {
                     console.warn('语音合成失败:', data.error);
-                    // 播放失败也要恢复语音循环
-                    if (voiceAutoRestart && voiceState === 'speaking') {
-                        voiceState = 'listening';
-                        updateVoiceButton();
-                        setTimeout(() => startVoiceRecording(), 600);
-                    }
+                    continueVoiceLoop();
                     return;
                 }
 
                 const audioB64 = data.audio;
                 const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
-                // 百度 aue=6 返回的是 MP3
                 const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
-                
-                // 先停止正在播放的音频
-                const currentAudio = window._currentAudio;
-                if (currentAudio) {
-                    currentAudio.pause();
-                    currentAudio.src = '';
-                    if (currentAudio._blobUrl) URL.revokeObjectURL(currentAudio._blobUrl);
+
+                if (window._currentAudio) {
+                    window._currentAudio.pause();
+                    window._currentAudio = null;
                 }
-                
-                // 创建新音频并播放
+
                 const audioUrl = URL.createObjectURL(audioBlob);
                 const audio = new Audio(audioUrl);
                 audio._blobUrl = audioUrl;
                 window._currentAudio = audio;
-                
+
+                // 启动打断检测
+                if (voiceVadActive) {
+                    startBargeInDetection();
+                }
+
                 audio.play().catch(err => {
                     console.warn('音频播放失败:', err);
-                    // 播放失败也要恢复语音循环
-                    if (voiceAutoRestart && voiceState === 'speaking') {
-                        voiceState = 'listening';
-                        updateVoiceButton();
-                        setTimeout(() => startVoiceRecording(), 600);
-                    }
+                    continueVoiceLoop();
                 });
 
-                // 播放完成后释放内存，语音模式下自动开始下一轮录音
                 audio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
                     if (window._currentAudio === audio) {
                         window._currentAudio = null;
                     }
-                    // 语音对话模式下，回复播放完后自动开始新录音
-                    if (voiceAutoRestart && voiceState === 'speaking') {
-                        voiceState = 'listening';
-                        updateVoiceButton();
-                        setTimeout(() => startVoiceRecording(), 600);
-                    } else {
-                        voiceState = 'idle';
-                        updateVoiceButton();
-                    }
+                    continueVoiceLoop();
                 };
 
             } catch (e) {
                 console.error('语音播放失败:', e);
-                // 出错也要恢复语音循环
-                if (voiceAutoRestart && voiceState === 'speaking') {
-                    voiceState = 'listening';
-                    updateVoiceButton();
-                    setTimeout(() => startVoiceRecording(), 800);
-                }
+                continueVoiceLoop();
             }
+        }
+
+        // 打断检测：朗读时检测用户说话
+        let bargeInInterval = null;
+        function startBargeInDetection() {
+            if (bargeInInterval) clearInterval(bargeInInterval);
+            bargeInInterval = setInterval(() => {
+                if (voiceState !== 'speaking' || !voiceAnalyser) {
+                    clearInterval(bargeInInterval);
+                    bargeInInterval = null;
+                    return;
+                }
+                const hasVoice = checkVoiceActivity();
+                if (hasVoice) {
+                    clearInterval(bargeInInterval);
+                    bargeInInterval = null;
+                    interruptSpeaking();
+                }
+            }, 200);
         }
 
         // 文件暂存区

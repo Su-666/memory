@@ -247,7 +247,9 @@ def list_memories():
 # ============ 意图判断 ============
 
 def determine_intent(text: str) -> str:
-    """判断用户意图：save / search / chat"""
+    """判断用户意图：save / search / chat
+    优先级：save > search > chat
+    """
     stripped = text.strip()
     if not stripped:
         return "chat"
@@ -256,44 +258,72 @@ def determine_intent(text: str) -> str:
     if stripped.startswith(("/搜", "/search")):
         return "search"
 
-    # ===== 保存意图（优先级最高） =====
-    save_keywords = (
-        "帮我记", "记一下", "记住", "记录一下", "保存一下",
-        "帮我存", "存一下", "提醒我", "别忘了", "备忘",
-        "把这个记下来", "收藏", "记下来", "要记住", "写下来",
-        "我的密码是", "我的手机号是", "我的地址是", "我的生日是",
-        "卡号是", "账号是", "密码是", "号码是",
-    )
-    if any(k in stripped for k in save_keywords):
+    # ===== 保存意图（最高优先级）=====
+    # 模式1：明确包含"是"的陈述句 → 直接保存
+    # 例："我的密码是123456"、"手机号是138xxxx"
+    save_patterns = [
+        "我的密码是", "我的手机号是", "我的电话是", "我的地址是",
+        "我的生日是", "我的邮箱是", "我的卡号是", "我的账号是",
+        "我的身份证是", "我的车牌是", "我的姓名是", "我叫",
+        "密码是", "手机号是", "电话是", "地址是",
+        "卡号是", "账号是", "号码是",
+    ]
+    for p in save_patterns:
+        if p in stripped:
+            return "save"
+
+    # 模式2：保存动词 + 具体内容（长度>8说明有内容）
+    save_verbs = ["帮我记住", "帮我记", "帮我存", "帮我保存",
+                  "记一下", "存一下", "记录一下", "保存一下",
+                  "记下来", "存下来", "写下来", "备忘"]
+    for verb in save_verbs:
+        if stripped.startswith(verb):
+            after = stripped[len(verb):].strip()
+            # 后面有具体内容（超过4个字或包含数字）
+            if len(after) > 4 or any(c.isdigit() for c in after):
+                return "save"
+            # 后面没有内容 → 等待补充，但仍然是 save 意图
+            return "save"
+
+    # 模式3：其他保存关键词
+    other_save = ["别忘了", "提醒我", "把这个记下来", "收藏"]
+    if any(k in stripped for k in other_save):
         return "save"
 
-    # 纯意图短语（后面没有具体内容）→ 等待补充
-    pure_intent = ("帮我记住", "帮我存", "记一下", "存一下", "记录")
-    for phrase in pure_intent:
-        if stripped.startswith(phrase):
-            after = stripped[len(phrase):].strip()
-            if not after or len(after) < 3:
-                return "save"  # 会触发 check_save_pending
-
     # ===== 搜索意图 =====
-    search_keywords = (
-        "帮我找", "帮我查", "查一下", "搜一下", "找一下",
-        "查找", "找到", "搜索", "记得", "我记过",
-        "之前记", "以前记", "我存过", "我的记忆", "记忆库",
-        "保存过", "记录过", "查询", "检索", "有没有",
-        "在哪里", "在哪", "什么时候", "多少", "谁",
-        "列出", "有哪些", "记了什么", "看看记忆",
-        "我的密码", "我的手机号", "我的地址", "我的生日",
+    # 模式1：明确的搜索动词
+    search_verbs = ["帮我找", "帮我查", "查一下", "搜一下", "找一下",
+                    "查找", "搜索", "查询", "检索", "看看"]
+    for verb in search_verbs:
+        if verb in stripped:
+            return "search"
+
+    # 模式2：询问记忆内容（疑问句）
+    # 包含问号 + 记忆相关词
+    has_question = "?" in stripped or "？" in stripped
+    memory_words = ["密码", "手机号", "电话", "地址", "生日", "邮箱",
+                    "卡号", "账号", "身份证", "车牌", "名字", "姓名"]
+    if has_question:
+        for w in memory_words:
+            if w in stripped:
+                return "search"
+        # "我记过什么"、"存了什么"、"有哪些"
+        if any(k in stripped for k in ["记过", "存过", "保存过", "记录过", "有哪些", "记了什么"]):
+            return "search"
+
+    # 模式3：陈述式询问（没有问号但明显在问）
+    search_phrases = [
+        "我记过", "我之前记", "我以前记", "我存过", "我保存过",
+        "我的记忆", "记忆库里", "有没有记", "有没有存",
+        "在哪里", "在哪", "什么时候", "多少",
         "什么密码", "什么号码", "什么电话", "什么地址",
-        "身份证", "银行卡", "驾驶证", "护照",
-    )
-    if any(k in stripped for k in search_keywords):
+    ]
+    if any(p in stripped for p in search_phrases):
         return "search"
 
-    # 疑问句模式（包含问号且涉及记忆相关词）
-    if "?" in stripped or "？" in stripped:
-        memory_related = ("记", "存", "保存", "密码", "号码", "电话", "地址", "生日", "名字")
-        if any(k in stripped for k in memory_related):
+    # 模式4：包含记忆相关词 + "是"（在问某个具体信息）
+    for w in memory_words:
+        if w in stripped and ("是" in stripped or "多少" in stripped):
             return "search"
 
     return "chat"
@@ -301,43 +331,41 @@ def determine_intent(text: str) -> str:
 def check_save_pending(text: str) -> tuple:
     """检查用户是否只表达了保存意图但没有具体内容
     返回 (need_wait, pending_text)
+    例：
+        "帮我记住" → (True, "帮我记住")  # 等待补充
+        "帮我记住我的手机号是138xxxx" → (False, None)  # 有内容，直接保存
     """
     text_stripped = text.strip()
 
-    # 纯意图短语列表
-    pure_intent_phrases = [
-        "帮我记住", "帮我存", "记一下", "存一下",
-        "帮我记录", "帮我保存", "记下来", "保存一下",
+    # 如果有"是"且后面有内容，说明是完整陈述，不需要等待
+    if "是" in text_stripped:
+        parts = text_stripped.split("是", 1)
+        if len(parts) == 2 and parts[1].strip():
+            return (False, None)
+
+    # 如果有数字，说明有具体内容
+    if any(c.isdigit() for c in text_stripped) and len(text_stripped) > 8:
+        return (False, None)
+
+    # 纯意图短语列表（后面没有具体内容时触发等待）
+    pure_intent = [
+        "帮我记住", "帮我记", "帮我存", "帮我保存",
+        "记一下", "存一下", "记录一下", "保存一下",
+        "记下来", "存下来", "写下来",
     ]
 
-    # 占位词（如果后面跟着具体内容，就不等待）
-    placeholder_words = [
-        "手机号", "电话", "地址", "密码", "账号", "生日", "日期", "时间",
-        "金额", "价格", "邮箱", "银行卡", "卡号", "网址", "网站",
-        "身份证", "驾驶证", "社保", "护照", "车牌", "订单号",
-    ]
-
-    # 情况1：纯意图短语（后面没有内容）
-    for phrase in pure_intent_phrases:
-        if text_stripped == phrase or text_stripped.startswith(phrase):
+    for phrase in pure_intent:
+        if text_stripped.startswith(phrase):
             after = text_stripped[len(phrase):].strip()
-            if not after or len(after) < 3:
+            # 后面几乎没有内容 → 等待补充
+            if len(after) < 4:
                 return (True, text_stripped)
+            return (False, None)
 
-    # 情况2：包含占位词但后面没有具体内容
-    has_intent_word = any(phrase in text_stripped for phrase in pure_intent_phrases)
-    if has_intent_word:
-        placeholder_after_content = False
-        for word in placeholder_words:
-            if word in text_stripped:
-                idx = text_stripped.find(word)
-                after_part = text_stripped[idx + len(word):].strip()
-                # 占位词后面有内容（数字或3个以上字符）
-                if len(after_part) > 2 or any(c.isdigit() for c in after_part):
-                    placeholder_after_content = True
-                    break
-        has_content = len(text_stripped) > 15 or any(c.isdigit() for c in text_stripped)
-        if not placeholder_after_content and not has_content:
+    # 如果文本很短（<=6字）且包含保存相关词，可能是纯意图
+    if len(text_stripped) <= 6:
+        short_intent = ["记住", "记下", "保存", "存下", "备忘"]
+        if any(w in text_stripped for w in short_intent):
             return (True, text_stripped)
 
     return (False, None)
@@ -445,9 +473,16 @@ def chat():
             SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
             if reply:
                 SESSION_CHAT_HISTORY.append({"role": "assistant", "content": reply})
+            import random
+            fallback_replies = [
+                '没找到呢～换个说法试试？',
+                '好像没记过这个，要不先记一下？',
+                '翻了一圈没找到，记点别的？',
+                '没找着，可能还没记过这个~',
+            ]
             return jsonify({
                 'type': 'assistant',
-                'text': reply or '没找到呢～要不换个说法再试试？或者先记点东西？',
+                'text': reply or random.choice(fallback_replies),
                 'results': []
             })
 
@@ -467,9 +502,11 @@ def chat():
             # 没有生成答案，直接展示结果
             if len(results) == 1:
                 r = results[0]
-                text = f"找到啦~ {r.get('title', '记忆')}"
+                text = f"找到啦~ {r.get('title', '这条记忆')}"
                 if r.get('summary'):
                     text += f"：{r['summary']}"
+            elif len(results) <= 3:
+                text = f'找到 {len(results)} 条相关记忆~'
             else:
                 text = f'找到 {len(results)} 条相关记忆哦~'
             return jsonify({
@@ -481,9 +518,16 @@ def chat():
     if intent == "chat":
         need_wait, pending_text = check_save_pending(user_text)
         if need_wait:
+            import random
+            wait_replies = [
+                '好呀，具体是什么内容呢？说给我听听～',
+                '行，说具体内容吧~',
+                '好嘞，告诉我具体内容~',
+                '嗯嗯，说具体内容给我吧~',
+            ]
             return jsonify({
                 'type': 'assistant',
-                'text': '好呀，具体是什么内容呢？说给我听听～',
+                'text': random.choice(wait_replies),
                 'pending_save': pending_text
             })
         SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
@@ -491,27 +535,56 @@ def chat():
         if response:
             SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
         else:
-            response = "嗯～我在呢，想聊啥或者想记啥都说哦~"
+            import random
+            idle_replies = [
+                "嗯～我在呢，想聊啥或者想记啥都说哦~",
+                "在呢在呢，说呗~",
+                "听着呢，你说~",
+                "嗯哼，我在~",
+            ]
+            response = random.choice(idle_replies)
         return jsonify({'type': 'assistant', 'text': response})
 
     if intent == "save":
         need_wait, pending_text = check_save_pending(user_text)
         if need_wait:
+            import random
+            wait_replies = [
+                '好呀，说具体内容给我吧～',
+                '行，说具体内容吧~',
+                '好嘞，告诉我具体内容~',
+            ]
             return jsonify({
                 'type': 'assistant',
-                'text': '好呀，说具体内容给我吧～',
+                'text': random.choice(wait_replies),
                 'pending_save': pending_text
             })
         try:
             title, summary = build_memory_metadata(user_text)
             app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-            return jsonify({'type': 'assistant', 'text': '记好啦~ 以后忘了随时问我呀', 'saved': True})
+            import random
+            save_replies = [
+                '记好啦~ 以后忘了随时问我呀',
+                '收到~ 帮你记下了',
+                '好嘞~ 记住了',
+                '记好啦，放心~',
+                '收到收到~ 记下来了',
+                '搞定~ 记好了',
+            ]
+            return jsonify({'type': 'assistant', 'text': random.choice(save_replies), 'saved': True})
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
+    import random
+    default_replies = [
+        '嗯~ 在呢，想说啥就说吧~',
+        '在呢，说吧~',
+        '听着呢~',
+        '嗯哼，说吧~',
+    ]
     return jsonify({
         'type': 'assistant',
-        'text': '嗯~ 在呢，想说啥就说吧~'
+        'text': random.choice(default_replies)
     })
 
 @app.route('/api/chat/confirm_save', methods=['POST'])
@@ -527,13 +600,17 @@ def confirm_save():
     vault_root = get_vault_root()
     decision = text.strip().lower()
 
-    if decision in {"记住", "保存", "要", "好", "好的", "是", "嗯", "ok"}:
+    if decision in {"记住", "保存", "要", "好", "好的", "是", "嗯", "ok", "对", "没错", "行", "可以"}:
         title, summary = build_memory_metadata(to_save)
         app_repo.remember_text_smart(conn, text=to_save, vault_root=vault_root, title=title, summary=summary)
-        return jsonify({'type': 'assistant', 'text': '记好啦~'})
+        import random
+        confirm_replies = ['记好啦~', '收到~', '好嘞~', '记下来了~', '搞定~']
+        return jsonify({'type': 'assistant', 'text': random.choice(confirm_replies)})
 
-    if decision in {"不用", "不", "不要", "取消", "算了"}:
-        return jsonify({'type': 'assistant', 'text': '好哒，那就不记啦~'})
+    if decision in {"不用", "不", "不要", "取消", "算了", "算了算了", "别"}:
+        cancel_replies = ['好哒，那就不记啦~', '好嘞，不记了~', '行，不保存了~']
+        import random
+        return jsonify({'type': 'assistant', 'text': random.choice(cancel_replies)})
 
     final_text = to_save
     if text and text not in to_save:
@@ -541,7 +618,9 @@ def confirm_save():
 
     title, summary = build_memory_metadata(final_text)
     app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
-    return jsonify({'type': 'assistant', 'text': '嗯嗯，帮你记好啦~'})
+    import random
+    merge_replies = ['嗯嗯，帮你记好啦~', '收到~ 合并记下来了', '好嘞，都记下了~']
+    return jsonify({'type': 'assistant', 'text': random.choice(merge_replies)})
 
 @app.route('/api/search', methods=['POST'])
 def search_memories():
@@ -830,9 +909,13 @@ def voice_dialogue():
                     top_time = str(results[0].get("time", "") or "").strip()
                     response_text = ans.answer
                     if top_time:
-                        response_text += f"\n（记忆时间：{top_time}）"
+                        response_text += f"\n（{top_time}）"
                 else:
-                    response_text = f'找到 {len(results)} 条相关记忆哦~'
+                    if len(results) == 1:
+                        r = results[0]
+                        response_text = f"找到啦~ {r.get('title', '')}：{r.get('summary', r.get('body', ''))[:60]}"
+                    else:
+                        response_text = f'找到 {len(results)} 条相关记忆哦~'
 
         elif intent == "chat":
             need_wait, pending_text = check_save_pending(user_text)
@@ -855,7 +938,9 @@ def voice_dialogue():
                 try:
                     title, summary = build_memory_metadata(user_text)
                     app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-                    response_text = '记好啦~'
+                    import random
+                    save_voice_replies = ['记好啦~', '收到~', '好嘞~', '记下来了~']
+                    response_text = random.choice(save_voice_replies)
                     saved = True
                 except Exception as e:
                     response_text = f'保存失败: {str(e)}'
@@ -887,13 +972,15 @@ def call_llm_chat(user_query: str, history: list) -> str:
     base_url = "https://open.bigmodel.cn/api/paas/v4"
     model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4-Flash-250414")
     system_prompt = (
-        "你是「暖暖」，一个温暖贴心的记忆助手。你就像用户的好朋友一样自然亲切。"
-        "回复要像朋友间微信聊天一样自然随意，简短口语化（15-40字最好），不要太正式。"
-        "不要用「您好」「请问」「很抱歉」这种客套话，直接说就好。"
-        "可以适当用语气词「嗯」「呀」「呢」「哦」「啦」「~」，让对话更有温度。"
-        "如果用户没记过什么，就说「你还没跟我记过东西呢，想记点什么？」之类的。"
-        "记住你是「暖暖」不是AI，就像一个有记忆的好伙伴在陪用户聊天。"
-        "对保存操作回应简短确认，比如「记好啦~」「收到~」，不要长篇大论。"
+        "你是「暖暖」，用户最贴心的朋友。你们关系很熟，说话很随意。"
+        "回复要超级口语化，像微信聊天，15-40字左右。"
+        "绝对不要用：您好、请问、很抱歉、对不起、谢谢您的理解。"
+        "语气词随便用：嗯、呀、呢、哦、啦、~、呗、哈、嘛。"
+        "可以撒娇、吐槽、开玩笑，像真人朋友一样。"
+        "用户说'谢谢' → 回'客气啥~'/'咱俩谁跟谁'。"
+        "用户说'你好' → 回'嗨~咋啦？'/'哟，想起我啦？'。"
+        "用户闲聊 → 陪聊，可以反问'你呢？'/'最近咋样？'。"
+        "记住你是暖暖，不是AI，不要提自己是人工智能。"
     )
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
@@ -901,9 +988,9 @@ def call_llm_chat(user_query: str, history: list) -> str:
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "max_tokens": 500,
+        "temperature": 0.85,
+        "top_p": 0.92,
+        "max_tokens": 300,
         "tools": [{"type": "web_search", "web_search": {"enable": True}}]
     }
     try:
