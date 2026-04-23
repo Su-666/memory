@@ -247,6 +247,7 @@ def list_memories():
 # ============ 意图判断 ============
 
 def determine_intent(text: str) -> str:
+    """判断用户意图：save / search / chat"""
     stripped = text.strip()
     if not stripped:
         return "chat"
@@ -254,57 +255,123 @@ def determine_intent(text: str) -> str:
         return "chat"
     if stripped.startswith(("/搜", "/search")):
         return "search"
-    save_keywords = ("帮我记", "记一下", "记住", "记录一下", "保存一下",
+
+    # ===== 保存意图（优先级最高） =====
+    save_keywords = (
+        "帮我记", "记一下", "记住", "记录一下", "保存一下",
         "帮我存", "存一下", "提醒我", "别忘了", "备忘",
-        "把这个记下来", "收藏", "记下来", "要记住", "写下来")
+        "把这个记下来", "收藏", "记下来", "要记住", "写下来",
+        "我的密码是", "我的手机号是", "我的地址是", "我的生日是",
+        "卡号是", "账号是", "密码是", "号码是",
+    )
     if any(k in stripped for k in save_keywords):
         return "save"
-    search_keywords = ("帮我找", "帮我查", "查一下", "搜一下", "找一下",
+
+    # 纯意图短语（后面没有具体内容）→ 等待补充
+    pure_intent = ("帮我记住", "帮我存", "记一下", "存一下", "记录")
+    for phrase in pure_intent:
+        if stripped.startswith(phrase):
+            after = stripped[len(phrase):].strip()
+            if not after or len(after) < 3:
+                return "save"  # 会触发 check_save_pending
+
+    # ===== 搜索意图 =====
+    search_keywords = (
+        "帮我找", "帮我查", "查一下", "搜一下", "找一下",
         "查找", "找到", "搜索", "记得", "我记过",
         "之前记", "以前记", "我存过", "我的记忆", "记忆库",
         "保存过", "记录过", "查询", "检索", "有没有",
-        "哪里", "在哪", "什么时候", "多少", "谁",
-        "列出", "有哪些", "记了什么", "看看记忆")
+        "在哪里", "在哪", "什么时候", "多少", "谁",
+        "列出", "有哪些", "记了什么", "看看记忆",
+        "我的密码", "我的手机号", "我的地址", "我的生日",
+        "什么密码", "什么号码", "什么电话", "什么地址",
+        "身份证", "银行卡", "驾驶证", "护照",
+    )
     if any(k in stripped for k in search_keywords):
         return "search"
-    memory_question_keywords = ("我记了什么", "记得什么", "存了什么", "保存了什么",
-        "记忆里有", "记忆库有", "密码", "号码", "电话", "生日",
-        "之前记的", "以前记的", "我记录过", "什么号", "什么密码")
-    if any(k in stripped for k in memory_question_keywords):
-        return "search"
+
+    # 疑问句模式（包含问号且涉及记忆相关词）
+    if "?" in stripped or "？" in stripped:
+        memory_related = ("记", "存", "保存", "密码", "号码", "电话", "地址", "生日", "名字")
+        if any(k in stripped for k in memory_related):
+            return "search"
+
     return "chat"
 
 def check_save_pending(text: str) -> tuple:
-    pure_intent_phrases = ["帮我记住", "帮我存", "记一下", "存一下", "保存", "好的", "好", "行", "嗯", "记住了"]
-    placeholder_words = ["手机号", "电话", "地址", "密码", "账号", "生日", "日期", "时间", "金额", "价格",
-        "邮箱", "银行卡", "卡号", "网址", "网站", "app", "软件", "会员", "到期", "有效期",
-        "身份证", "驾驶证", "社保", "护照", "车牌", "订单号", "快递", "股票", "基金", "保险"]
+    """检查用户是否只表达了保存意图但没有具体内容
+    返回 (need_wait, pending_text)
+    """
     text_stripped = text.strip()
-    is_pure_intent = text_stripped in pure_intent_phrases
-    has_intent_word = any(phrase in text_stripped for phrase in ["帮我记住", "帮我存", "记一下", "存一下"])
-    placeholder_after_content = False
-    for word in placeholder_words:
-        if word in text_stripped:
-            idx = text_stripped.find(word)
-            after_part = text_stripped[idx + len(word):]
-            if len(after_part) > 2 or any(c.isdigit() for c in after_part):
-                placeholder_after_content = True
-                break
-    has_content = len(text_stripped) > 15 or any(c.isdigit() for c in text_stripped)
-    need_wait = is_pure_intent or (has_intent_word and not placeholder_after_content and not has_content)
-    if need_wait:
-        return (True, text_stripped)
+
+    # 纯意图短语列表
+    pure_intent_phrases = [
+        "帮我记住", "帮我存", "记一下", "存一下",
+        "帮我记录", "帮我保存", "记下来", "保存一下",
+    ]
+
+    # 占位词（如果后面跟着具体内容，就不等待）
+    placeholder_words = [
+        "手机号", "电话", "地址", "密码", "账号", "生日", "日期", "时间",
+        "金额", "价格", "邮箱", "银行卡", "卡号", "网址", "网站",
+        "身份证", "驾驶证", "社保", "护照", "车牌", "订单号",
+    ]
+
+    # 情况1：纯意图短语（后面没有内容）
+    for phrase in pure_intent_phrases:
+        if text_stripped == phrase or text_stripped.startswith(phrase):
+            after = text_stripped[len(phrase):].strip()
+            if not after or len(after) < 3:
+                return (True, text_stripped)
+
+    # 情况2：包含占位词但后面没有具体内容
+    has_intent_word = any(phrase in text_stripped for phrase in pure_intent_phrases)
+    if has_intent_word:
+        placeholder_after_content = False
+        for word in placeholder_words:
+            if word in text_stripped:
+                idx = text_stripped.find(word)
+                after_part = text_stripped[idx + len(word):].strip()
+                # 占位词后面有内容（数字或3个以上字符）
+                if len(after_part) > 2 or any(c.isdigit() for c in after_part):
+                    placeholder_after_content = True
+                    break
+        has_content = len(text_stripped) > 15 or any(c.isdigit() for c in text_stripped)
+        if not placeholder_after_content and not has_content:
+            return (True, text_stripped)
+
     return (False, None)
 
 def extract_search_query(text: str) -> str:
-    query = text
+    """从用户输入中提取搜索关键词"""
+    query = text.strip()
+
+    # 去掉命令前缀
     if query.startswith("/搜"):
         query = query[2:].strip(" ：,，,。")
-    if query.startswith("/search"):
+    elif query.startswith("/search"):
         query = query[len("/search"):].strip()
-    return query
+
+    # 去掉常见的搜索引导词
+    remove_prefixes = [
+        "帮我找一下", "帮我查一下", "帮我找", "帮我查",
+        "查一下", "搜一下", "找一下", "查找", "搜索",
+        "我记过的", "我保存的", "我的",
+    ]
+    for prefix in remove_prefixes:
+        if query.startswith(prefix):
+            query = query[len(prefix):].strip(" ：,，,。")
+
+    # 去掉疑问词
+    remove_suffixes = ["是什么", "是多少", "在哪里", "在哪", "吗", "呢", "吧"]
+    for suffix in remove_suffixes:
+        if query.endswith(suffix):
+            query = query[:-len(suffix)].strip(" ：,，,。")
+
+    return query or text.strip()
 
 def build_memory_metadata(text: str) -> tuple:
+    """从用户输入中提取标题和摘要"""
     title = ""
     summary = ""
     try:
@@ -313,9 +380,30 @@ def build_memory_metadata(text: str) -> tuple:
         summary = (getattr(plan, "note_content", "") or "").strip()
     except Exception:
         pass
-    fallback_title = (text[:18] + "…") if len(text) > 18 else (text or "记忆")
-    fallback_summary = (text[:60] + "…") if len(text) > 60 else (text or "记忆")
-    return (title or fallback_title, summary or fallback_summary)
+
+    # 智能提取标题
+    if not title:
+        # 尝试提取 "XX是YY" 结构
+        if "我的" in text and ("是" in text or ":" in text or "：" in text):
+            parts = text.replace("：", ":").split(":")
+            if len(parts) >= 2:
+                title = parts[0].strip()[:20]
+            else:
+                parts = text.split("是")
+                if len(parts) >= 2:
+                    title = ("我的" + parts[1].strip())[:20] if "我的" in parts[0] else parts[0].strip()[:20]
+
+        # 提取关键词作为标题
+        if not title:
+            keywords = ["密码", "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "身份证", "车牌"]
+            for kw in keywords:
+                if kw in text:
+                    title = f"我的{kw}"
+                    break
+
+    fallback_title = title or ((text[:18] + "…") if len(text) > 18 else (text or "记忆"))
+    fallback_summary = summary or ((text[:80] + "…") if len(text) > 80 else (text or "记忆"))
+    return (fallback_title, fallback_summary)
 
 # ============ API 路由 ============
 
@@ -333,20 +421,25 @@ def chat():
 
     if intent == "search":
         query = extract_search_query(user_text)
+
+        # 智能扩展搜索词
         search_queries = [query]
-        keywords = ["手机号", "电话", "密码", "地址", "生日"]
-        for kw in keywords:
+        # 提取查询中的关键词进行扩展
+        important_keywords = ["手机号", "电话", "密码", "地址", "生日", "邮箱", "卡号", "账号"]
+        for kw in important_keywords:
             if kw in query and kw not in search_queries:
                 search_queries.append(kw)
+
         results = []
         seen_ids = set()
         for sq in search_queries:
             items = app_search.search(conn, query=sq, sort_mode="relevant", limit=20)
             for item in items:
-                item_id = item.get('id')
-                if item_id not in seen_ids:
+                item_id = item.get('id') or item.get('entity_id')
+                if item_id and item_id not in seen_ids:
                     seen_ids.add(item_id)
                     results.append(item)
+
         if not results:
             reply = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
             SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
@@ -354,24 +447,34 @@ def chat():
                 SESSION_CHAT_HISTORY.append({"role": "assistant", "content": reply})
             return jsonify({
                 'type': 'assistant',
-                'text': reply or '没找到呢～要不换个说法再试试？',
+                'text': reply or '没找到呢～要不换个说法再试试？或者先记点东西？',
                 'results': []
             })
+
+        # 用 answer 模块生成自然回复
         ans = app_answer(user_text, results[:8])
         if ans.answer:
             top_time = str(results[0].get("time", "") or "").strip()
             response_text = ans.answer
             if top_time:
-                response_text += f"\n（记忆时间：{top_time}）"
+                response_text += f"\n（{top_time}）"
             return jsonify({
                 'type': 'assistant',
                 'text': response_text,
                 'results': results[:8]
             })
         else:
+            # 没有生成答案，直接展示结果
+            if len(results) == 1:
+                r = results[0]
+                text = f"找到啦~ {r.get('title', '记忆')}"
+                if r.get('summary'):
+                    text += f"：{r['summary']}"
+            else:
+                text = f'找到 {len(results)} 条相关记忆哦~'
             return jsonify({
                 'type': 'assistant',
-                'text': f'找到 {len(results)} 条相关记忆哦~',
+                'text': text,
                 'results': results[:8]
             })
 
@@ -566,18 +669,14 @@ def synthesize_with_qwen(text: str) -> bytes:
     try:
         client = AipSpeech(app_id, api_key_baidu, secret_key)
         text = text.strip()[:300]
+        # aue=6 是 MP3 格式，直接返回不需要再包 WAV
         result = client.synthesis(text, 'zh', 1, {'per': 5, 'spd': 5, 'pit': 5, 'vol': 7, 'aue': 6})
         if isinstance(result, dict):
             raise RuntimeError(f"百度语音合成失败: {result.get('err_msg', '未知错误')}")
         if not result or len(result) < 100:
             raise RuntimeError("百度语音合成返回空音频")
-        wav_buffer = io.BytesIO()
-        with wave.open(wav_buffer, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(16000)
-            wf.writeframes(result)
-        return wav_buffer.getvalue()
+        # aue=6 返回的是 MP3，前端可以直接播放
+        return result
     except Exception as e:
         raise RuntimeError(f"百度语音合成失败: {e}")
 
@@ -763,8 +862,8 @@ def voice_dialogue():
 
         # 生成语音回复
         try:
-            wav_bytes = synthesize_with_qwen(response_text[:300])
-            audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+            audio_bytes = synthesize_with_qwen(response_text[:300])
+            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
             return jsonify({
                 'user_text': user_text,
                 'response_text': response_text,
@@ -786,7 +885,7 @@ def call_llm_chat(user_query: str, history: list) -> str:
     if not api_key:
         return None
     base_url = "https://open.bigmodel.cn/api/paas/v4"
-    model = os.getenv("LOCAL_AGENT_MODEL", "glm-4-flash-250414")
+    model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4.6V-Flash")
     system_prompt = (
         "你是「暖暖」，一个温暖贴心的记忆助手。你就像用户的好朋友一样自然亲切。"
         "回复要像朋友间微信聊天一样自然随意，简短口语化（15-40字最好），不要太正式。"

@@ -1258,11 +1258,8 @@
                     showResults(data.results);
                 }
 
-                if (data.text && voiceReplyEnabled) {
-                    speakText(data.text);
-                }
-                // 语音模式下也自动朗读（除非已经由 voiceReplyEnabled 处理）
-                if (data.text && isVoiceMode && !voiceReplyEnabled) {
+                // 语音模式下自动朗读回复
+                if (data.text && (voiceReplyEnabled || voiceAutoRestart)) {
                     speakText(data.text);
                 }
                 voiceReplyEnabled = false;
@@ -1569,50 +1566,68 @@
             mediaRecorderSupported = false;
         }
 
-        // 简化版语音：点击开始录音，再点击停止并发送
-        // 长按也可以：按住说话，松开发送
-        let longPressTimer = null;
-        let isLongPress = false;
+        // ========== 语音对话系统 ==========
+        // 状态：idle → recording → processing → speaking → listening (循环)
+        let voiceState = 'idle'; // idle, recording, processing, speaking, listening
+        let voiceStream = null;
+        let voiceAutoRestart = false; // 是否在朗读结束后自动开始下一轮录音
 
         async function toggleVoice() {
-            if (isRecording) {
-                // 正在录音 → 停止录音并识别
+            if (voiceState === 'recording') {
+                // 正在录音 → 停止
                 stopVoiceRecording();
-            } else if (isVoiceMode) {
-                // 语音模式已开启 → 关闭语音模式
-                isVoiceMode = false;
-                updateVoiceButton();
-                setStatus('语音模式已关闭');
-                setTimeout(() => setStatus('准备就绪'), 1500);
-            } else {
-                // 开始录音
+            } else if (voiceState === 'idle') {
+                // 进入语音对话模式
+                voiceAutoRestart = true;
                 await startVoiceRecording();
+            } else {
+                // 其他状态 → 退出语音模式
+                exitVoiceMode();
             }
         }
 
-        // 长按开始
+        // 长按：按住说话，松开发送（手机端友好）
+        let longPressTimer = null;
+        let isLongPress = false;
+
         async function voiceLongPressStart(e) {
             if (e) e.preventDefault();
             isLongPress = false;
             longPressTimer = setTimeout(async () => {
                 isLongPress = true;
-                if (!isRecording) {
+                if (voiceState === 'idle') {
+                    voiceAutoRestart = false; // 长按单次录音，不自动循环
                     await startVoiceRecording();
                 }
             }, 300);
         }
 
-        // 长按结束
         function voiceLongPressEnd(e) {
             if (e) e.preventDefault();
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
                 longPressTimer = null;
             }
-            if (isLongPress && isRecording) {
+            if (isLongPress && voiceState === 'recording') {
                 stopVoiceRecording();
                 isLongPress = false;
             }
+        }
+
+        // 退出语音模式
+        function exitVoiceMode() {
+            voiceState = 'idle';
+            voiceAutoRestart = false;
+            isVoiceMode = false;
+            isRecording = false;
+            if (voiceStream) {
+                voiceStream.getTracks().forEach(t => t.stop());
+                voiceStream = null;
+            }
+            document.getElementById('audio-indicator').style.display = 'none';
+            updateVoiceButton();
+            setStatus('语音模式已退出');
+            setTimeout(() => setStatus('准备就绪'), 1500);
         }
 
         // 开始录音
@@ -1624,7 +1639,7 @@
             }
 
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
+                voiceStream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
@@ -1632,7 +1647,7 @@
                     }
                 });
 
-                mediaRecorder = new MediaRecorder(stream, {
+                mediaRecorder = new MediaRecorder(voiceStream, {
                     mimeType: selectedMimeType || 'audio/webm'
                 });
                 audioChunks = [];
@@ -1642,36 +1657,47 @@
                 };
 
                 mediaRecorder.onstop = async () => {
-                    stream.getTracks().forEach(t => t.stop());
+                    voiceStream.getTracks().forEach(t => t.stop());
+                    voiceStream = null;
                     if (audioChunks.length > 0) {
                         await processVoiceRecording();
+                    } else {
+                        voiceState = voiceAutoRestart ? 'listening' : 'idle';
+                        updateVoiceButton();
+                        if (voiceAutoRestart) {
+                            setTimeout(() => startVoiceRecording(), 300);
+                        }
                     }
                 };
 
                 mediaRecorder.start(100);
+                voiceState = 'recording';
                 isRecording = true;
                 isVoiceMode = true;
 
                 updateVoiceButton();
-                setStatus('🎙️ 录音中，点击停止...');
+                setStatus('🎙️ 录音中...');
                 document.getElementById('audio-indicator').style.display = 'block';
                 document.getElementById('audio-indicator').innerHTML = `
                     <div class="mic-icon">🎙️</div>
                     <div>录音中...</div>
-                    <div class="sub">再点一下麦克风停止并发送</div>
+                    <div class="sub">说完后点击麦克风停止</div>
                 `;
 
             } catch (e) {
                 console.error('麦克风启动失败:', e);
                 setStatus('无法访问麦克风: ' + e.message);
+                voiceState = 'idle';
+                updateVoiceButton();
             }
         }
 
         // 停止录音
         function stopVoiceRecording() {
-            if (!isRecording || !mediaRecorder) return;
+            if (voiceState !== 'recording' || !mediaRecorder) return;
             try {
                 mediaRecorder.stop();
+                voiceState = 'processing';
                 isRecording = false;
 
                 setStatus('🔄 正在识别...');
@@ -1683,6 +1709,7 @@
                 updateVoiceButton();
             } catch (e) {
                 console.error('停止录音失败:', e);
+                voiceState = 'idle';
                 isRecording = false;
                 document.getElementById('audio-indicator').style.display = 'none';
                 updateVoiceButton();
@@ -1710,25 +1737,36 @@
                 });
 
                 const data = await response.json();
-                document.getElementById('audio-indicator').style.display = 'none';
 
                 if (data.error) {
+                    document.getElementById('audio-indicator').style.display = 'none';
                     setStatus('识别失败: ' + data.error);
                     addBubble('assistant', '语音识别没成功，要不你打字告诉我吧～');
+                    voiceState = voiceAutoRestart ? 'listening' : 'idle';
+                    updateVoiceButton();
+                    // 连续对话模式下，识别失败后自动重试录音
+                    if (voiceAutoRestart) {
+                        setTimeout(() => startVoiceRecording(), 1000);
+                    }
                     return;
                 }
 
                 const text = (data.text || '').trim();
                 if (text) {
-                    // 语音模式下自动朗读回复
-                    voiceReplyEnabled = isVoiceMode;
+                    document.getElementById('audio-indicator').style.display = 'none';
+                    voiceState = 'speaking';
+                    updateVoiceButton();
+
                     document.getElementById('command-input').value = text;
                     await sendMessage();
                     setStatus('✅ 语音已发送');
                 } else {
-                    setStatus('没听清呢，再试一次吧');
-                    if (isVoiceMode) {
-                        addBubble('assistant', '嗯？没听清，再说一次呗～');
+                    document.getElementById('audio-indicator').style.display = 'none';
+                    setStatus('没听清呢，再说一次呗');
+                    voiceState = voiceAutoRestart ? 'listening' : 'idle';
+                    updateVoiceButton();
+                    if (voiceAutoRestart) {
+                        setTimeout(() => startVoiceRecording(), 800);
                     }
                 }
 
@@ -1736,6 +1774,11 @@
                 console.error('语音处理失败:', error);
                 document.getElementById('audio-indicator').style.display = 'none';
                 setStatus('语音处理失败');
+                voiceState = voiceAutoRestart ? 'listening' : 'idle';
+                updateVoiceButton();
+                if (voiceAutoRestart) {
+                    setTimeout(() => startVoiceRecording(), 1500);
+                }
             }
         }
 
@@ -1744,22 +1787,36 @@
             const voiceBtn = document.getElementById('voice-btn');
             const voiceModeBar = document.getElementById('voice-mode-bar');
 
-            if (isRecording) {
+            if (voiceState === 'recording') {
                 voiceBtn.textContent = '⏹️';
                 voiceBtn.title = '点击停止录音';
                 voiceBtn.classList.add('recording');
                 voiceModeBar.classList.add('active');
-            } else if (isVoiceMode) {
+                voiceModeBar.querySelector('span').textContent = '正在录音 · 点击🎤停止';
+            } else if (voiceState === 'processing') {
+                voiceBtn.textContent = '🔄';
+                voiceBtn.title = '识别中...';
+                voiceBtn.classList.add('recording');
+                voiceModeBar.classList.add('active');
+                voiceModeBar.querySelector('span').textContent = '正在识别语音...';
+            } else if (voiceState === 'speaking') {
+                voiceBtn.textContent = '🔊';
+                voiceBtn.title = '正在朗读回复...';
+                voiceBtn.classList.add('recording');
+                voiceModeBar.classList.add('active');
+                voiceModeBar.querySelector('span').textContent = '正在朗读 · 说完自动开始录音';
+            } else if (voiceState === 'listening' || voiceAutoRestart) {
                 voiceBtn.textContent = '🎤';
-                voiceBtn.title = '语音模式（自动朗读回复）| 点击录音';
+                voiceBtn.title = '语音对话模式 · 点击退出';
                 voiceBtn.classList.remove('recording');
                 voiceBtn.style.borderColor = '#10b981';
                 voiceBtn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
                 voiceBtn.style.color = '#065f46';
                 voiceModeBar.classList.add('active');
+                voiceModeBar.querySelector('span').textContent = '语音对话模式 · 点击🎤开始说话 · 再点退出';
             } else {
                 voiceBtn.textContent = '🎤';
-                voiceBtn.title = '点击录音 | 长按说话';
+                voiceBtn.title = '点击开始语音对话';
                 voiceBtn.classList.remove('recording');
                 voiceBtn.style.borderColor = '';
                 voiceBtn.style.background = '';
@@ -2043,7 +2100,8 @@
 
         async function speakText(text) {
             try {
-                const cleanText = text.replace(/\n/g, ' ').replace(/（[^）]+）/g, '').trim();
+                // 清理文本：去掉换行、括号内容、URL
+                const cleanText = text.replace(/\n/g, ' ').replace(/（[^）]+）/g, '').replace(/https?:\/\/\S+/g, '').trim();
                 if (!cleanText) return;
                 
                 const response = await fetch('/api/speech_synthesize', {
@@ -2053,40 +2111,71 @@
                 });
 
                 const data = await response.json();
-                if (data.error) return;
+                if (data.error) {
+                    console.warn('语音合成失败:', data.error);
+                    // 播放失败也要恢复语音循环
+                    if (voiceAutoRestart && voiceState === 'speaking') {
+                        voiceState = 'listening';
+                        updateVoiceButton();
+                        setTimeout(() => startVoiceRecording(), 600);
+                    }
+                    return;
+                }
 
                 const audioB64 = data.audio;
                 const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
-                const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
+                // 百度 aue=6 返回的是 MP3
+                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
                 
                 // 先停止正在播放的音频
                 const currentAudio = window._currentAudio;
                 if (currentAudio) {
                     currentAudio.pause();
                     currentAudio.src = '';
-                    URL.revokeObjectURL(currentAudio._blobUrl);
+                    if (currentAudio._blobUrl) URL.revokeObjectURL(currentAudio._blobUrl);
                 }
                 
                 // 创建新音频并播放
                 const audioUrl = URL.createObjectURL(audioBlob);
                 const audio = new Audio(audioUrl);
-                audio._blobUrl = audioUrl;  // 保存引用以便清理
-                window._currentAudio = audio;   // 全局引用
+                audio._blobUrl = audioUrl;
+                window._currentAudio = audio;
                 
-                audio.play();
+                audio.play().catch(err => {
+                    console.warn('音频播放失败:', err);
+                    // 播放失败也要恢复语音循环
+                    if (voiceAutoRestart && voiceState === 'speaking') {
+                        voiceState = 'listening';
+                        updateVoiceButton();
+                        setTimeout(() => startVoiceRecording(), 600);
+                    }
+                });
+
                 // 播放完成后释放内存，语音模式下自动开始下一轮录音
                 audio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
                     if (window._currentAudio === audio) {
                         window._currentAudio = null;
                     }
-                    // 语音模式下，回复播放完后自动开始新录音
-                    if (isVoiceMode && !isRecording) {
-                        setTimeout(() => startVoiceRecording(), 500);
+                    // 语音对话模式下，回复播放完后自动开始新录音
+                    if (voiceAutoRestart && voiceState === 'speaking') {
+                        voiceState = 'listening';
+                        updateVoiceButton();
+                        setTimeout(() => startVoiceRecording(), 600);
+                    } else {
+                        voiceState = 'idle';
+                        updateVoiceButton();
                     }
                 };
 
             } catch (e) {
+                console.error('语音播放失败:', e);
+                // 出错也要恢复语音循环
+                if (voiceAutoRestart && voiceState === 'speaking') {
+                    voiceState = 'listening';
+                    updateVoiceButton();
+                    setTimeout(() => startVoiceRecording(), 800);
+                }
             }
         }
 
