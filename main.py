@@ -885,7 +885,7 @@ def call_llm_chat(user_query: str, history: list) -> str:
     if not api_key:
         return None
     base_url = "https://open.bigmodel.cn/api/paas/v4"
-    model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4.6V-Flash")
+    model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4.1V-Thinking-Flash")
     system_prompt = (
         "你是「暖暖」，一个温暖贴心的记忆助手。你就像用户的好朋友一样自然亲切。"
         "回复要像朋友间微信聊天一样自然随意，简短口语化（15-40字最好），不要太正式。"
