@@ -354,7 +354,7 @@ def chat():
                 SESSION_CHAT_HISTORY.append({"role": "assistant", "content": reply})
             return jsonify({
                 'type': 'assistant',
-                'text': reply or '我没有找到相关内容，我们可以聊聊其他话题。',
+                'text': reply or '没找到呢～要不换个说法再试试？',
                 'results': []
             })
         ans = app_answer(user_text, results[:8])
@@ -371,7 +371,7 @@ def chat():
         else:
             return jsonify({
                 'type': 'assistant',
-                'text': f'找到 {len(results)} 条相关记忆：',
+                'text': f'找到 {len(results)} 条相关记忆哦~',
                 'results': results[:8]
             })
 
@@ -380,7 +380,7 @@ def chat():
         if need_wait:
             return jsonify({
                 'type': 'assistant',
-                'text': '好的，请说具体内容。',
+                'text': '好呀，具体是什么内容呢？说给我听听～',
                 'pending_save': pending_text
             })
         SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
@@ -388,7 +388,7 @@ def chat():
         if response:
             SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
         else:
-            response = "我在。你想让我帮你查什么，还是帮我记住什么？"
+            response = "嗯～我在呢，想聊啥或者想记啥都说哦~"
         return jsonify({'type': 'assistant', 'text': response})
 
     if intent == "save":
@@ -396,19 +396,19 @@ def chat():
         if need_wait:
             return jsonify({
                 'type': 'assistant',
-                'text': '好的，请说具体内容。',
+                'text': '好呀，说具体内容给我吧～',
                 'pending_save': pending_text
             })
         try:
             title, summary = build_memory_metadata(user_text)
             app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-            return jsonify({'type': 'assistant', 'text': '好的，我记住了。', 'saved': True})
+            return jsonify({'type': 'assistant', 'text': '记好啦~ 以后忘了随时问我呀', 'saved': True})
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
     return jsonify({
         'type': 'assistant',
-        'text': '嗯，我在。你想让我帮我查什么，还是帮我记住什么？'
+        'text': '嗯~ 在呢，想说啥就说吧~'
     })
 
 @app.route('/api/chat/confirm_save', methods=['POST'])
@@ -427,10 +427,10 @@ def confirm_save():
     if decision in {"记住", "保存", "要", "好", "好的", "是", "嗯", "ok"}:
         title, summary = build_memory_metadata(to_save)
         app_repo.remember_text_smart(conn, text=to_save, vault_root=vault_root, title=title, summary=summary)
-        return jsonify({'type': 'assistant', 'text': '好的，我记住了。'})
+        return jsonify({'type': 'assistant', 'text': '记好啦~'})
 
     if decision in {"不用", "不", "不要", "取消", "算了"}:
-        return jsonify({'type': 'assistant', 'text': '好的，不保存。'})
+        return jsonify({'type': 'assistant', 'text': '好哒，那就不记啦~'})
 
     final_text = to_save
     if text and text not in to_save:
@@ -438,7 +438,7 @@ def confirm_save():
 
     title, summary = build_memory_metadata(final_text)
     app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
-    return jsonify({'type': 'assistant', 'text': '好的，已经帮你记住了。'})
+    return jsonify({'type': 'assistant', 'text': '嗯嗯，帮你记好啦~'})
 
 @app.route('/api/search', methods=['POST'])
 def search_memories():
@@ -724,7 +724,7 @@ def voice_dialogue():
                     SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
                     SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response_text})
                 else:
-                    response_text = '我没有找到相关内容，我们可以聊聊其他话题。'
+                    response_text = '没找到呢～换个说法试试？'
             else:
                 ans = app_answer(user_text, results[:8])
                 if ans.answer:
@@ -733,30 +733,30 @@ def voice_dialogue():
                     if top_time:
                         response_text += f"\n（记忆时间：{top_time}）"
                 else:
-                    response_text = f'找到 {len(results)} 条相关记忆。'
+                    response_text = f'找到 {len(results)} 条相关记忆哦~'
 
         elif intent == "chat":
             need_wait, pending_text = check_save_pending(user_text)
             if need_wait:
-                response_text = '好的，请说具体内容。'
+                response_text = '好呀，说具体内容给我吧～'
             else:
                 SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
                 response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
                 if response:
                     SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
                 else:
-                    response = "我在。你想让我帮你查什么，还是帮我记住什么？"
+                    response = "我在呢～想聊啥？"
                 response_text = response
 
         elif intent == "save":
             need_wait, pending_text = check_save_pending(user_text)
             if need_wait:
-                response_text = '好的，请说具体内容。'
+                response_text = '好呀，说具体内容给我吧～'
             else:
                 try:
                     title, summary = build_memory_metadata(user_text)
                     app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-                    response_text = '好的，我记住了。'
+                    response_text = '记好啦~'
                     saved = True
                 except Exception as e:
                     response_text = f'保存失败: {str(e)}'
@@ -787,14 +787,23 @@ def call_llm_chat(user_query: str, history: list) -> str:
         return None
     base_url = "https://open.bigmodel.cn/api/paas/v4"
     model = os.getenv("LOCAL_AGENT_MODEL", "glm-4-flash-250414")
-    system_prompt = "你是一个友好的本地智能记忆助手，可以和用户闲聊、回答问题。请直接回答问题，不需要说明信息来源。"
+    system_prompt = (
+        "你是「暖暖」，一个温暖贴心的记忆助手。你就像用户的好朋友一样自然亲切。"
+        "回复要像朋友间微信聊天一样自然随意，简短口语化（15-40字最好），不要太正式。"
+        "不要用「您好」「请问」「很抱歉」这种客套话，直接说就好。"
+        "可以适当用语气词「嗯」「呀」「呢」「哦」「啦」「~」，让对话更有温度。"
+        "如果用户没记过什么，就说「你还没跟我记过东西呢，想记点什么？」之类的。"
+        "记住你是「暖暖」不是AI，就像一个有记忆的好伙伴在陪用户聊天。"
+        "对保存操作回应简短确认，比如「记好啦~」「收到~」，不要长篇大论。"
+    )
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_query})
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0.5,
+        "temperature": 0.7,
+        "top_p": 0.9,
         "max_tokens": 500,
         "tools": [{"type": "web_search", "web_search": {"enable": True}}]
     }
@@ -812,10 +821,10 @@ def call_llm_chat(user_query: str, history: list) -> str:
         if "tool_calls" in message:
             messages.append(message)
             for tool_call in message["tool_calls"]:
-                messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": "联网搜索已完成，模型将根据搜索结果生成回答。"})
+                messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": "联网搜索已完成"})
             req2 = http_request.Request(
                 f"{base_url.rstrip('/')}/chat/completions",
-                data=json.dumps({"model": model, "messages": messages, "temperature": 0.5, "max_tokens": 500}, ensure_ascii=False).encode("utf-8"),
+                data=json.dumps({"model": model, "messages": messages, "temperature": 0.7, "top_p": 0.9, "max_tokens": 500}, ensure_ascii=False).encode("utf-8"),
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 method="POST",
             )
@@ -823,7 +832,7 @@ def call_llm_chat(user_query: str, history: list) -> str:
                 data2 = json.loads(response.read().decode("utf-8"))
             final_message = data2["choices"][0]["message"]
             content = final_message.get("content", "")
-            return str(content).strip() if content else "我已联网搜索，但未能获取到有效信息。"
+            return str(content).strip() if content else "我查了一下，没找到相关信息呢。"
         content = message.get("content", "")
         return str(content).strip() if content else None
     except Exception as e:
@@ -876,7 +885,7 @@ def get_image():
         response.headers['Cache-Control'] = 'private, max-age=3600'
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
-    except Exception as e:
+    except Exception:
         return Response('加载失败', status=500)
 
 @app.route('/api/memories/recent', methods=['GET'])

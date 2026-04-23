@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>暖暖 - 记忆助手</title>
     <style>
         :root {
@@ -35,9 +35,12 @@
             background: linear-gradient(160deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
             min-height: 100vh;
             min-height: 100dvh;
+            height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             color: var(--text-primary);
+            overflow: hidden;
         }
 
         .header {
@@ -110,15 +113,61 @@
 
         body.dark-mode {
             --bg-gradient-start: #1a2e2c;
-            --bg-gradient-end: #0f766e;
+            --bg-gradient-end: #0d5e58;
             --card-bg: #2a4a47;
             --card-border: #4a6360;
             --text-primary: #f0f7f6;
             --text-secondary: #c5ddd9;
-            --text-muted: #7a8f8c;
+            --text-muted: #8a9f9c;
             --assistant-bg: #1a2e2c;
             --assistant-border: #4a6360;
             --user-bg: linear-gradient(135deg, #0f766e, #14b8a6);
+        }
+
+        body.dark-mode .header {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 50%, #0f5e58 100%);
+        }
+
+        body.dark-mode .input-area {
+            background: rgba(26, 46, 44, 0.97);
+        }
+
+        body.dark-mode .chat-view {
+            background: linear-gradient(180deg, #1a2e2c 0%, #2a4a47 100%);
+        }
+
+        body.dark-mode .voice-mode-bar {
+            background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+            border-top-color: #10b981;
+            color: #6ee7b7;
+        }
+
+        body.dark-mode .typing-indicator {
+            background: #2a4a47;
+            border-color: #4a6360;
+        }
+
+        body.dark-mode .welcome {
+            color: var(--text-secondary);
+        }
+
+        body.dark-mode .welcome .tip-item {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
+            border-color: var(--card-border);
+        }
+
+        body.dark-mode .bubble-results {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
+            border-color: #4a6360;
+        }
+
+        body.dark-mode .result-item {
+            background: #1a2e2c;
+            border-color: #4a6360;
+        }
+
+        body.dark-mode .result-item:hover {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
         }
 
         .stats-badge {
@@ -171,9 +220,9 @@
             max-width: 960px;
             width: 100%;
             margin: 0 auto;
-            padding: 24px 20px;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
+            padding: 20px;
+            min-height: 0;
+            overflow: hidden;
         }
 
         .chat-container {
@@ -185,13 +234,12 @@
             border-radius: var(--border-radius);
             overflow: hidden;
             box-shadow: var(--shadow);
-            min-height: 500px;
+            min-height: 0;
         }
 
         .chat-view {
             flex: 1;
             min-height: 0;
-            max-height: calc(100vh - 340px);
             overflow-y: auto;
             scrollbar-width: thin;
             scrollbar-color: #c5ddd9 transparent;
@@ -510,6 +558,35 @@
             50% { transform: translateY(-6px); opacity: 1; }
         }
 
+        /* 打字指示器 */
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 14px 18px;
+            background: var(--assistant-bg);
+            border: 1px solid var(--assistant-border);
+            border-radius: var(--border-radius);
+            align-self: flex-start;
+            animation: bubbleIn 0.25s ease-out;
+        }
+
+        .typing-indicator .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            animation: typingDot 1.4s ease-in-out infinite;
+        }
+
+        .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typingDot {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+
         .welcome {
             text-align: center;
             padding: 60px 30px;
@@ -593,6 +670,34 @@
             font-size: 13px;
             margin-top: 12px;
             opacity: 0.85;
+        }
+
+        /* 语音模式指示条 */
+        .voice-mode-bar {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 4px 12px;
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-top: 1px solid #6ee7b7;
+            font-size: 12px;
+            color: #065f46;
+            font-weight: 600;
+        }
+        .voice-mode-bar.active {
+            display: flex;
+        }
+        .voice-mode-bar .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulseDot 1.5s ease-in-out infinite;
+        }
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
         }
 
         /* 连续对话模式样式 */
@@ -696,52 +801,59 @@
             z-index: 2001;
         }
 
+        /* ====== 手机端适配 ====== */
         @media (max-width: 700px) {
+            body {
+                height: 100vh;
+                height: 100dvh;
+            }
             .header {
-                flex-direction: column;
-                gap: 12px;
-                padding: 14px 16px;
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                z-index: 100;
+                flex-direction: row;
+                gap: 8px;
+                padding: 8px 12px;
+                position: sticky;
                 background: linear-gradient(135deg, #e0f2ee 0%, #d5ebe7 50%, #c8e6e0 100%);
+                min-height: unset;
             }
             .header-left {
-                align-items: center;
-                text-align: center;
+                flex: 1;
+                min-width: 0;
             }
             .header-badge {
-                font-size: 9px;
-                padding: 4px 10px;
+                font-size: 8px;
+                padding: 2px 6px;
             }
             .header-title {
-                font-size: 24px;
+                font-size: 20px;
+                line-height: 1.1;
             }
             .header-subtitle {
-                font-size: 11px;
+                display: none;
             }
             .header-right {
-                width: 100%;
-                justify-content: center;
-                gap: 8px;
+                width: auto;
+                flex-shrink: 0;
+                gap: 4px;
             }
             .stats-badge {
                 font-size: 10px;
-                padding: 3px 8px;
+                padding: 3px 7px;
             }
             .theme-toggle {
-                padding: 6px 10px;
+                padding: 5px 8px;
                 font-size: 12px;
+            }
+            .btn {
+                padding: 6px 10px;
+                font-size: 11px;
             }
             .main {
                 padding: 0;
                 flex: 1;
                 display: flex;
                 flex-direction: column;
-                height: 100vh;
-                height: 100dvh;
+                min-height: 0;
+                overflow: hidden;
             }
             .chat-container {
                 flex: 1;
@@ -750,19 +862,22 @@
                 flex-direction: column;
                 border-radius: 0;
                 border: none;
-                margin-top: 90px;
+                box-shadow: none;
             }
             .chat-view {
                 flex: 1;
                 min-height: 0;
-                max-height: none;
-                padding: 14px 12px;
-                padding-bottom: 120px;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                padding: 10px 8px;
+                padding-bottom: 80px;
+                scroll-padding-bottom: 16px;
             }
             .bubble {
                 max-width: 90%;
-                padding: 12px 14px;
+                padding: 10px 14px;
                 font-size: 15px;
+                line-height: 1.55;
             }
             .bubble-assistant .bubble-name {
                 font-size: 11px;
@@ -772,42 +887,45 @@
                 bottom: 0;
                 left: 0;
                 right: 0;
-                gap: 8px;
-                padding: 10px 12px;
+                gap: 6px;
+                padding: 8px 10px;
+                padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
                 z-index: 99;
-                background: rgba(248, 252, 251, 0.95);
-                backdrop-filter: blur(10px);
-                -webkit-backdrop-filter: blur(10px);
+                background: rgba(248, 252, 251, 0.97);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
                 border-top: 1px solid var(--card-border);
             }
+            body.dark-mode .input-area {
+                background: rgba(26, 46, 44, 0.97);
+            }
             .command-input {
-                padding: 12px 14px;
+                padding: 10px 12px;
                 font-size: 16px;
-                min-height: 48px;
-                max-height: 120px;
-                overflow-y: auto;
+                min-height: 44px;
+                max-height: 100px;
             }
             .btn-send {
-                width: 48px;
-                height: 48px;
-                border-radius: 24px;
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
                 font-size: 18px;
-                flex-shrink: 0;
             }
             .btn-voice {
                 width: 44px;
                 height: 44px;
+                min-width: 44px;
                 font-size: 18px;
-                flex-shrink: 0;
             }
             .status-bar {
                 display: none;
             }
             .welcome {
-                padding: 20px 16px;
+                padding: 24px 14px 16px;
             }
             .welcome-icon {
-                font-size: 44px;
+                font-size: 42px;
+                margin-bottom: 12px;
             }
             .welcome h2 {
                 font-size: 20px;
@@ -820,10 +938,10 @@
             }
             .welcome .tip-item {
                 padding: 10px 12px;
-                font-size: 12px;
+                font-size: 13px;
             }
             .result-item {
-                padding: 12px;
+                padding: 10px;
             }
             .result-title {
                 font-size: 13px;
@@ -833,34 +951,40 @@
             }
             .result-image {
                 max-width: 100%;
-                max-height: 150px;
+                max-height: 160px;
             }
             .result-actions {
                 flex-wrap: wrap;
+                gap: 6px;
             }
             .btn-small {
                 padding: 5px 10px;
                 font-size: 11px;
             }
             .file-pending-area {
-                margin: 0 10px 10px 10px;
+                margin: 0 8px;
+                bottom: 70px;
+                position: fixed;
+                left: 0;
+                right: 0;
+                z-index: 98;
+                border-radius: 0;
             }
             #audio-indicator {
-                padding: 28px 40px;
-                font-size: 18px;
+                padding: 24px 36px;
+                font-size: 16px;
+                width: 85%;
+                max-width: 320px;
             }
             #audio-indicator .mic-icon {
-                font-size: 40px;
+                font-size: 36px;
             }
-
-            /* 聊天区域底部留出输入框空间 */
-            .chat-view {
-                scroll-padding-bottom: 20px;
+            .typing-indicator {
+                padding: 10px 14px;
             }
-
-            /* 输入法弹出时保持页面布局 */
-            .chat-container {
-                contain: layout style;
+            .voice-mode-bar {
+                font-size: 11px;
+                padding: 3px 8px;
             }
         }
 
@@ -868,10 +992,7 @@
         @supports (padding-bottom: env(safe-area-inset-bottom)) {
             @media (max-width: 700px) {
                 .input-area {
-                    padding-bottom: calc(10px + env(safe-area-inset-bottom));
-                }
-                .main {
-                    padding-bottom: env(safe-area-inset-bottom);
+                    padding-bottom: max(10px, env(safe-area-inset-bottom));
                 }
             }
         }
@@ -882,7 +1003,7 @@
         <div class="header-left">
             <div class="header-badge">LOCAL MEMORY STUDIO</div>
             <div class="header-title">暖暖</div>
-            <div class="header-subtitle">把零散念头、语音和附件整理成可搜索的私人记忆库</div>
+            <div class="header-subtitle">你的贴心记忆小助手，记啥问我都行~</div>
         </div>
         <div class="header-right">
             <div class="stats-badge" onclick="showStats()" title="查看统计信息">📊 统计</div>
@@ -896,21 +1017,25 @@
             <div class="chat-view" id="chat-view">
                 <div class="welcome">
                     <div class="welcome-icon">🌸</div>
-                    <h2>你好！我是暖暖</h2>
-                    <p>你可以直接告诉我想记住什么，或像聊天一样问我"之前存过什么"。</p>
-                    <p>支持语音输入、拖拽文件和图片。</p>
+                    <h2>嗨，我是暖暖~</h2>
+                    <p>告诉我你想记住什么，或者问我"之前记过啥"</p>
+                    <p>点击🎤可以语音聊天哦</p>
                     <div class="tips">
-                        <div class="tip-item">💬 试试说：「帮我记住我的手机号是138xxxx」</div>
-                        <div class="tip-item">🔍 试试问：「我之前记过什么？」</div>
-                        <div class="tip-item">🎤 点击麦克风按钮可以语音输入</div>
-                        <div class="tip-item">📁 拖拽文件到输入框可以上传保存</div>
+                        <div class="tip-item">💬 说：「帮我记住手机号138xxxx」</div>
+                        <div class="tip-item">🔍 问：「我之前记过什么？」</div>
+                        <div class="tip-item">🎤 点麦克风开始语音聊天</div>
+                        <div class="tip-item">📁 拖文件到输入框可以上传</div>
                     </div>
                 </div>
             </div>
 
+            <div class="voice-mode-bar" id="voice-mode-bar">
+                <div class="pulse-dot"></div>
+                <span>语音对话模式 · 自动朗读 · 点击🎤关闭</span>
+            </div>
             <div class="input-area" id="drop-area">
-                <textarea class="command-input" id="command-input" placeholder="输入内容...（回车发送）" onkeypress="handleKeyPress(event)" rows="1" style="resize: none; overflow: hidden;"></textarea>
-                <button class="btn-voice" id="voice-btn" title="语音输入" onclick="toggleVoice()">🎤</button>
+                <textarea class="command-input" id="command-input" placeholder="跟我说说~（回车发送）" onkeypress="handleKeyPress(event)" rows="1" style="resize: none; overflow: hidden;"></textarea>
+                <button class="btn-voice" id="voice-btn" title="点击录音 | 长按说话" onclick="toggleVoice()" ontouchstart="voiceLongPressStart(event)" ontouchend="voiceLongPressEnd(event)" onmousedown="voiceLongPressStart(event)" onmouseup="voiceLongPressEnd(event)">🎤</button>
                 <button class="btn-send" id="send-btn" title="发送" onclick="sendMessage()">➜</button>
             </div>
         </div>
@@ -979,18 +1104,11 @@
         let audioChunks = [];
         let pendingSaveText = null;
         const sendBtn = document.getElementById('send-btn');
-        
-        // 实时语音对话相关变量
-        let isContinuousMode = false; // 是否处于连续对话模式
-        let vadAnalyzer = null; // 语音活动检测器
-        let silenceTimer = null; // 静音检测定时器
-        let audioContext = null; // Web Audio API上下文
-        let analyser = null; // 音频分析器
-        let microphone = null; // 麦克风流
-        let vadBuffer = []; // VAD缓冲区
-        let vadThreshold = 0.01; // 语音活动阈值
-        let silenceDuration = 1500; // 静音持续时间(ms)
-        let isListening = false; // 是否正在监听
+
+        // 语音对话相关变量
+        let isVoiceMode = false; // 语音对话模式（自动朗读回复+连续对话）
+        let mediaRecorderSupported = false;
+        let selectedMimeType = '';
 
         // 输入框自动调整高度
         function autoResizeTextarea() {
@@ -1022,10 +1140,10 @@
             document.getElementById('pending-indicator').style.display = show ? 'block' : 'none';
             const input = document.getElementById('command-input');
             if (show) {
-                input.placeholder = '请输入要记住的内容（如：138xxxx）...';
+                input.placeholder = '告诉我具体内容~（如：138xxxx）';
                 input.style.borderColor = '#e8c88a';
             } else {
-                input.placeholder = '输入内容...（回车发送）';
+                input.placeholder = '跟我说说~（回车发送）';
                 input.style.borderColor = '';
             }
         }
@@ -1039,7 +1157,7 @@
                 const decision = text.toLowerCase().trim();
                 
                 // 确认保存
-                if (['记住', '保存', '要', '好', '好的', '是', '嗯', 'ok'].includes(decision)) {
+                if (['记住', '保存', '要', '好', '好的', '是', '嗯', 'ok', '对', '没错'].includes(decision)) {
                     addBubble('user', text);
                     input.value = '';
                     setLoading(true);
@@ -1058,7 +1176,7 @@
                         pendingSaveText = null;
                         showPendingIndicator(false);
                     } catch (e) {
-                        addBubble('assistant', '保存失败: ' + e.message);
+                        addBubble('assistant', '保存出了点问题: ' + e.message);
                     }
                     
                     setLoading(false);
@@ -1067,10 +1185,10 @@
                 }
                 
                 // 取消保存
-                if (['不用', '不', '不要', '取消', '算了'].includes(decision)) {
+                if (['不用', '不', '不要', '取消', '算了', '算了算了'].includes(decision)) {
                     addBubble('user', text);
                     input.value = '';
-                    addBubble('assistant', '好的，不保存。');
+                    addBubble('assistant', '好哒，那就不记啦~');
                     pendingSaveText = null;
                     showPendingIndicator(false);
                     setLoading(false);
@@ -1098,7 +1216,7 @@
                     pendingSaveText = null;
                     showPendingIndicator(false);
                 } catch (e) {
-                    addBubble('assistant', '保存失败: ' + e.message);
+                    addBubble('assistant', '保存出了点问题: ' + e.message);
                 }
                 
                 setLoading(false);
@@ -1108,8 +1226,10 @@
 
             addBubble('user', text);
             input.value = '';
+            autoResizeTextarea();
             setLoading(true);
             setStatus('正在处理...');
+            showTypingIndicator();
             scrollToBottom();
 
             try {
@@ -1121,7 +1241,7 @@
 
                 const data = await response.json();
                 if (data.error) {
-                    addBubble('assistant', '出错了: ' + data.error);
+                    addBubble('assistant', '哎呀，出了点小问题: ' + data.error);
                     setLoading(false);
                     setStatus('出错了');
                     return;
@@ -1141,15 +1261,39 @@
                 if (data.text && voiceReplyEnabled) {
                     speakText(data.text);
                 }
+                // 语音模式下也自动朗读（除非已经由 voiceReplyEnabled 处理）
+                if (data.text && isVoiceMode && !voiceReplyEnabled) {
+                    speakText(data.text);
+                }
                 voiceReplyEnabled = false;
 
             } catch (e) {
-                addBubble('assistant', '请求失败: ' + e.message);
+                addBubble('assistant', '网络好像不太给力，稍后再试试？');
                 setStatus('网络错误');
             }
 
+            hideTypingIndicator();
             setLoading(false);
             setStatus('准备就绪');
+        }
+
+        function showTypingIndicator() {
+            const view = document.getElementById('chat-view');
+            // 移除已有的
+            const existing = view.querySelector('.typing-indicator');
+            if (existing) existing.remove();
+            
+            const indicator = document.createElement('div');
+            indicator.className = 'typing-indicator';
+            indicator.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+            view.appendChild(indicator);
+            setTimeout(scrollToBottom, 50);
+        }
+
+        function hideTypingIndicator() {
+            const view = document.getElementById('chat-view');
+            const indicator = view.querySelector('.typing-indicator');
+            if (indicator) indicator.remove();
         }
 
         function scrollToBottom() {
@@ -1168,10 +1312,13 @@
             const bubble = document.createElement('div');
             bubble.className = 'bubble bubble-' + type;
             
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+            
             if (type === 'assistant') {
-                bubble.innerHTML = '<span class="bubble-name">暖暖</span>' + escapeHtml(text).replace(/\n/g, '<br>');
+                bubble.innerHTML = '<span class="bubble-name">暖暖 · ' + timeStr + '</span>' + escapeHtml(text).replace(/\n/g, '<br>');
             } else {
-                bubble.textContent = text;
+                bubble.innerHTML = escapeHtml(text).replace(/\n/g, '<br>') + '<div style="font-size:11px;opacity:0.6;text-align:right;margin-top:4px;">' + timeStr + '</div>';
             }
             
             view.appendChild(bubble);
@@ -1403,297 +1550,221 @@
             document.getElementById('stats-modal').style.display = 'none';
         }
 
-        // 语音活动检测 (VAD) - 检测用户何时开始和停止说话
-        async function initVAD() {
+        // ====== 语音系统 ======
+
+        // 检测浏览器音频支持
+        function detectAudioSupport() {
+            if (!window.MediaRecorder) {
+                mediaRecorderSupported = false;
+                return;
+            }
+            const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+            for (const t of types) {
+                if (MediaRecorder.isTypeSupported(t)) {
+                    mediaRecorderSupported = true;
+                    selectedMimeType = t;
+                    return;
+                }
+            }
+            mediaRecorderSupported = false;
+        }
+
+        // 简化版语音：点击开始录音，再点击停止并发送
+        // 长按也可以：按住说话，松开发送
+        let longPressTimer = null;
+        let isLongPress = false;
+
+        async function toggleVoice() {
+            if (isRecording) {
+                // 正在录音 → 停止录音并识别
+                stopVoiceRecording();
+            } else if (isVoiceMode) {
+                // 语音模式已开启 → 关闭语音模式
+                isVoiceMode = false;
+                updateVoiceButton();
+                setStatus('语音模式已关闭');
+                setTimeout(() => setStatus('准备就绪'), 1500);
+            } else {
+                // 开始录音
+                await startVoiceRecording();
+            }
+        }
+
+        // 长按开始
+        async function voiceLongPressStart(e) {
+            if (e) e.preventDefault();
+            isLongPress = false;
+            longPressTimer = setTimeout(async () => {
+                isLongPress = true;
+                if (!isRecording) {
+                    await startVoiceRecording();
+                }
+            }, 300);
+        }
+
+        // 长按结束
+        function voiceLongPressEnd(e) {
+            if (e) e.preventDefault();
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+            if (isLongPress && isRecording) {
+                stopVoiceRecording();
+                isLongPress = false;
+            }
+        }
+
+        // 开始录音
+        async function startVoiceRecording() {
+            detectAudioSupport();
+            if (!mediaRecorderSupported) {
+                setStatus('当前浏览器不支持语音录制');
+                return;
+            }
+
             try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 256;
-                analyser.smoothingTimeConstant = 0.3;
-                
-                microphone = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { 
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true
-                    } 
+                    }
                 });
-                
-                const source = audioContext.createMediaStreamSource(microphone);
-                source.connect(analyser);
-                
-                vadBuffer = [];
-                return true;
-            } catch (error) {
-                console.error('VAD初始化失败:', error);
-                return false;
-            }
-        }
 
-        function checkVoiceActivity() {
-            if (!analyser) return false;
-            
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            analyser.getByteFrequencyData(dataArray);
-            
-            // 计算音频能量
-            let sum = 0;
-            for (let i = 0; i < bufferLength; i++) {
-                sum += dataArray[i] * dataArray[i];
-            }
-            const rms = Math.sqrt(sum / bufferLength) / 128.0; // 归一化到0-1
-            
-            // 滑动平均滤波
-            vadBuffer.push(rms);
-            if (vadBuffer.length > 10) {
-                vadBuffer.shift();
-            }
-            
-            const avgEnergy = vadBuffer.reduce((a, b) => a + b, 0) / vadBuffer.length;
-            return avgEnergy > vadThreshold;
-        }
-
-        // 开始连续语音对话
-        async function startContinuousConversation() {
-            if (isContinuousMode) return;
-            
-            try {
-                setStatus('🎤 初始化语音识别...');
-                
-                // 初始化VAD
-                const vadReady = await initVAD();
-                if (!vadReady) {
-                    throw new Error('无法访问麦克风');
-                }
-                
-                isContinuousMode = true;
-                isListening = true;
-                updateVoiceButton();
-                
-                setStatus('👂 正在监听，请说话...');
-                document.getElementById('audio-indicator').style.display = 'block';
-                document.getElementById('audio-indicator').innerHTML = `
-                    <div class="mic-icon">🎤</div>
-                    <div>正在监听...</div>
-                    <div class="sub">检测到语音自动开始录音</div>
-                `;
-                
-                // 开始语音活动检测循环
-                vadLoop();
-                
-            } catch (error) {
-                console.error('连续对话启动失败:', error);
-                setStatus('语音功能不可用: ' + error.message);
-                stopContinuousConversation();
-            }
-        }
-
-        // VAD检测循环
-        function vadLoop() {
-            if (!isContinuousMode) return;
-            
-            const hasVoice = checkVoiceActivity();
-            
-            if (hasVoice && !isRecording) {
-                // 检测到语音，开始录音
-                startRecordingFromVAD();
-            } else if (!hasVoice && isRecording) {
-                // 语音停止，延迟检查是否真的静音
-                if (!silenceTimer) {
-                    silenceTimer = setTimeout(() => {
-                        if (!checkVoiceActivity()) {
-                            stopRecordingAndProcess();
-                        }
-                        silenceTimer = null;
-                    }, silenceDuration);
-                }
-            }
-            
-            // 继续检测循环
-            if (isContinuousMode) {
-                requestAnimationFrame(vadLoop);
-            }
-        }
-
-        // 从VAD开始录音
-        function startRecordingFromVAD() {
-            if (isRecording) return;
-            
-            try {
-                mediaRecorder = new MediaRecorder(microphone, { 
-                    mimeType: 'audio/webm;codecs=opus' 
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: selectedMimeType || 'audio/webm'
                 });
                 audioChunks = [];
-                
+
                 mediaRecorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) {
-                        audioChunks.push(e.data);
-                    }
+                    if (e.data.size > 0) audioChunks.push(e.data);
                 };
-                
+
                 mediaRecorder.onstop = async () => {
+                    stream.getTracks().forEach(t => t.stop());
                     if (audioChunks.length > 0) {
-                        await processVoiceInput();
+                        await processVoiceRecording();
                     }
                 };
-                
-                mediaRecorder.start(100); // 每100ms收集一次数据
+
+                mediaRecorder.start(100);
                 isRecording = true;
-                
-                setStatus('🎙️ 正在录音...');
+                isVoiceMode = true;
+
+                updateVoiceButton();
+                setStatus('🎙️ 录音中，点击停止...');
+                document.getElementById('audio-indicator').style.display = 'block';
                 document.getElementById('audio-indicator').innerHTML = `
                     <div class="mic-icon">🎙️</div>
-                    <div>正在录音...</div>
-                    <div class="sub">请继续说话，停顿时自动处理</div>
+                    <div>录音中...</div>
+                    <div class="sub">再点一下麦克风停止并发送</div>
                 `;
-                
-                // 清除静音定时器
-                if (silenceTimer) {
-                    clearTimeout(silenceTimer);
-                    silenceTimer = null;
-                }
-                
-            } catch (error) {
-                console.error('录音启动失败:', error);
-                setStatus('录音失败: ' + error.message);
+
+            } catch (e) {
+                console.error('麦克风启动失败:', e);
+                setStatus('无法访问麦克风: ' + e.message);
             }
         }
 
-        // 停止录音并处理
-        function stopRecordingAndProcess() {
+        // 停止录音
+        function stopVoiceRecording() {
             if (!isRecording || !mediaRecorder) return;
-            
-            mediaRecorder.stop();
-            isRecording = false;
-            
-            setStatus('🔄 正在识别语音...');
-            document.getElementById('audio-indicator').innerHTML = `
-                <div class="mic-icon">🔄</div>
-                <div>正在识别...</div>
-                <div class="sub">请稍候</div>
-            `;
-        }
-
-        // 处理语音输入
-        async function processVoiceInput() {
             try {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                const wavBlob = await convertWebMToWAV(audioBlob);
-                
-                setStatus('🎯 正在识别语音...');
-                const text = await recognizeAudioForConversation(wavBlob);
-                
-                if (text && text.trim()) {
-                    // 自动发送识别到的文本
-                    voiceReplyEnabled = true; // 启用自动语音回复
-                    document.getElementById('command-input').value = text;
-                    await sendMessage();
-                    
-                    setStatus('✅ 识别完成，等待回复...');
-                } else {
-                    setStatus('❓ 未识别到有效内容');
-                    addBubble('assistant', '我没有听清，请再试一次...');
-                }
-                
-                // 短暂延迟后重新开始监听
-                setTimeout(() => {
-                    if (isContinuousMode) {
-                        setStatus('👂 正在监听，请说话...');
-                        document.getElementById('audio-indicator').innerHTML = `
-                            <div class="mic-icon">🎤</div>
-                            <div>正在监听...</div>
-                            <div class="sub">检测到语音自动开始录音</div>
-                        `;
-                    }
-                }, 2000);
-                
-            } catch (error) {
-                console.error('语音处理失败:', error);
-                setStatus('❌ 语音处理失败: ' + error.message);
-                addBubble('assistant', '语音处理失败，请重试');
-                
-                // 重新开始监听
-                setTimeout(() => {
-                    if (isContinuousMode) {
-                        setStatus('👂 正在监听，请说话...');
-                    }
-                }, 3000);
-            }
-        }
-
-        // 停止连续对话
-        function stopContinuousConversation() {
-            isContinuousMode = false;
-            isListening = false;
-            
-            // 停止录音
-            if (mediaRecorder && isRecording) {
                 mediaRecorder.stop();
                 isRecording = false;
+
+                setStatus('🔄 正在识别...');
+                document.getElementById('audio-indicator').innerHTML = `
+                    <div class="mic-icon">🔄</div>
+                    <div>正在识别...</div>
+                    <div class="sub">请稍候</div>
+                `;
+                updateVoiceButton();
+            } catch (e) {
+                console.error('停止录音失败:', e);
+                isRecording = false;
+                document.getElementById('audio-indicator').style.display = 'none';
+                updateVoiceButton();
             }
-            
-            // 清理资源
-            if (microphone) {
-                microphone.getTracks().forEach(track => track.stop());
-                microphone = null;
+        }
+
+        // 处理录音结果
+        async function processVoiceRecording() {
+            try {
+                let audioBlob;
+                try {
+                    audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioBlob = await convertWebMToWAV(audioBlob);
+                } catch (e) {
+                    console.warn('音频转换失败，直接发送:', e);
+                    audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
+                }
+
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'recording.wav');
+
+                const response = await fetch('/api/speech_recognize', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                document.getElementById('audio-indicator').style.display = 'none';
+
+                if (data.error) {
+                    setStatus('识别失败: ' + data.error);
+                    addBubble('assistant', '语音识别没成功，要不你打字告诉我吧～');
+                    return;
+                }
+
+                const text = (data.text || '').trim();
+                if (text) {
+                    // 语音模式下自动朗读回复
+                    voiceReplyEnabled = isVoiceMode;
+                    document.getElementById('command-input').value = text;
+                    await sendMessage();
+                    setStatus('✅ 语音已发送');
+                } else {
+                    setStatus('没听清呢，再试一次吧');
+                    if (isVoiceMode) {
+                        addBubble('assistant', '嗯？没听清，再说一次呗～');
+                    }
+                }
+
+            } catch (error) {
+                console.error('语音处理失败:', error);
+                document.getElementById('audio-indicator').style.display = 'none';
+                setStatus('语音处理失败');
             }
-            
-            if (audioContext) {
-                audioContext.close();
-                audioContext = null;
-            }
-            
-            if (silenceTimer) {
-                clearTimeout(silenceTimer);
-                silenceTimer = null;
-            }
-            
-            analyser = null;
-            vadBuffer = [];
-            
-            // 隐藏录音指示器
-            document.getElementById('audio-indicator').style.display = 'none';
-            
-            updateVoiceButton();
-            setStatus('准备就绪');
         }
 
         // 更新语音按钮状态
         function updateVoiceButton() {
             const voiceBtn = document.getElementById('voice-btn');
-            
-            if (isContinuousMode) {
+            const voiceModeBar = document.getElementById('voice-mode-bar');
+
+            if (isRecording) {
                 voiceBtn.textContent = '⏹️';
-                voiceBtn.title = '停止连续对话';
+                voiceBtn.title = '点击停止录音';
                 voiceBtn.classList.add('recording');
+                voiceModeBar.classList.add('active');
+            } else if (isVoiceMode) {
+                voiceBtn.textContent = '🎤';
+                voiceBtn.title = '语音模式（自动朗读回复）| 点击录音';
+                voiceBtn.classList.remove('recording');
+                voiceBtn.style.borderColor = '#10b981';
+                voiceBtn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
+                voiceBtn.style.color = '#065f46';
+                voiceModeBar.classList.add('active');
             } else {
                 voiceBtn.textContent = '🎤';
-                voiceBtn.title = '开始连续对话';
+                voiceBtn.title = '点击录音 | 长按说话';
                 voiceBtn.classList.remove('recording');
-            }
-        }
-
-        // 语音识别（专门用于连续对话）
-        async function recognizeAudioForConversation(audioBlob) {
-            try {
-                const formData = new FormData();
-                formData.append('audio', audioBlob, 'recording.wav');
-                
-                const response = await fetch('/api/speech_recognize', {
-                    method: 'POST',
-                    body: formData
-                });
-                
-                const data = await response.json();
-                if (data.error) {
-                    throw new Error(data.error);
-                }
-                
-                return data.text || '';
-            } catch (error) {
-                console.error('语音识别失败:', error);
-                throw error;
+                voiceBtn.style.borderColor = '';
+                voiceBtn.style.background = '';
+                voiceBtn.style.color = '';
+                voiceModeBar.classList.remove('active');
             }
         }
 
@@ -1828,14 +1899,14 @@
                 view.innerHTML = `
                     <div class="welcome">
                         <div class="welcome-icon">🌸</div>
-                        <h2>你好！我是暖暖</h2>
-                        <p>你可以直接告诉我想记住什么，或像聊天一样问我"之前存过什么"。</p>
-                        <p>支持语音输入、拖拽文件和图片。</p>
+                        <h2>嗨，我是暖暖~</h2>
+                        <p>告诉我你想记住什么，或者问我"之前记过啥"</p>
+                        <p>点击🎤可以语音聊天哦</p>
                         <div class="tips">
-                            <div class="tip-item">💬 试试说：「帮我记住我的手机号是138xxxx」</div>
-                            <div class="tip-item">🔍 试试问：「我之前记过什么？」</div>
-                            <div class="tip-item">🎤 点击麦克风按钮可以语音输入</div>
-                            <div class="tip-item">📁 拖拽文件到输入框可以上传保存</div>
+                            <div class="tip-item">💬 说：「帮我记住手机号138xxxx」</div>
+                            <div class="tip-item">🔍 问：「我之前记过什么？」</div>
+                            <div class="tip-item">🎤 点麦克风开始语音聊天</div>
+                            <div class="tip-item">📁 拖文件到输入框可以上传</div>
                         </div>
                     </div>
                 `;
@@ -1866,58 +1937,56 @@
             }
         }
 
-        // 语音按钮点击事件 - 切换连续对话模式
-        async function toggleVoice() {
-            if (isContinuousMode) {
-                stopContinuousConversation();
-            } else {
-                await startContinuousConversation();
-            }
-        }
-
-        async function startRecording() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = (e) => {
-                    audioChunks.push(e.data);
-                };
-
-                mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    stream.getTracks().forEach(track => track.stop());
-                    await convertAndRecognize(audioBlob);
-                };
-
-                mediaRecorder.start();
-                isRecording = true;
-                document.getElementById('voice-btn').classList.add('recording');
-                document.getElementById('audio-indicator').style.display = 'block';
-                setStatus('正在录音...');
-
-            } catch (e) {
-                alert('无法访问麦克风: ' + e.message);
-            }
-        }
+        // 旧版语音函数已被新语音系统替代
 
         // 将 WebM 转换为 WAV 格式（百度ASR需要WAV）
         async function convertWebMToWAV(webmBlob) {
             const arrayBuffer = await webmBlob.arrayBuffer();
-            const audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-            // 获取PCM数据
-            const wavData = audioBufferToWav(audioContext, audioBuffer);
+            // 重采样到16kHz（百度ASR需要）
+            const targetSampleRate = 16000;
+            const resampledBuffer = resampleAudio(audioBuffer, targetSampleRate);
+
+            const wavData = audioBufferToWav(resampledBuffer, targetSampleRate);
             audioContext.close();
             return new Blob([wavData], { type: 'audio/wav' });
         }
 
+        // 重采样音频
+        function resampleAudio(audioBuffer, targetSampleRate) {
+            const sourceSampleRate = audioBuffer.sampleRate;
+            const sourceLength = audioBuffer.length;
+            const targetLength = Math.round(sourceLength * targetSampleRate / sourceSampleRate);
+            const sourceData = audioBuffer.getChannelData(0);
+
+            // 创建新的缓冲区（模拟）
+            const resampledData = new Float32Array(targetLength);
+
+            // 简单线性插值重采样
+            for (let i = 0; i < targetLength; i++) {
+                const sourceIndex = i * sourceSampleRate / targetSampleRate;
+                const index = Math.floor(sourceIndex);
+                const fraction = sourceIndex - index;
+
+                if (index + 1 < sourceLength) {
+                    resampledData[i] = sourceData[index] * (1 - fraction) + sourceData[index + 1] * fraction;
+                } else {
+                    resampledData[i] = sourceData[index] || 0;
+                }
+            }
+
+            return {
+                length: targetLength,
+                sampleRate: targetSampleRate,
+                getChannelData: () => resampledData
+            };
+        }
+
         // 将 AudioBuffer 转换为 WAV 格式
-        function audioBufferToWav(audioContext, audioBuffer) {
+        function audioBufferToWav(audioBuffer, sampleRate) {
             const numChannels = 1; // 单声道
-            const sampleRate = audioBuffer.sampleRate;
             const format = 1; // PCM
             const bitDepth = 16;
 
@@ -1945,7 +2014,7 @@
             writeString(view, 36, 'data');
             view.setUint32(40, dataSize, true);
 
-            // 写入PCM数据（转换为16位有符号整数）
+            // 写入PCM数据
             const channelData = audioBuffer.getChannelData(0);
             let offset = 44;
             for (let i = 0; i < numFrames; i++) {
@@ -1963,64 +2032,14 @@
             }
         }
 
-        async function convertAndRecognize(webmBlob) {
-            setStatus('正在转换音频格式...');
-            try {
-                const wavBlob = await convertWebMToWAV(webmBlob);
-                await recognizeAudio(wavBlob);
-            } catch (e) {
-                console.error('音频转换失败:', e);
-                setStatus('音频转换失败，尝试直接识别...');
-                await recognizeAudio(webmBlob);
-            }
-        }
+        // 旧版 convertAndRecognize 已被新语音系统替代
 
         function stopRecording() {
-            if (mediaRecorder && isRecording) {
-                mediaRecorder.stop();
-                isRecording = false;
-                document.getElementById('voice-btn').classList.remove('recording');
-                document.getElementById('audio-indicator').style.display = 'none';
-                setStatus('正在识别...');
-            }
+            // 委托给新的语音系统
+            if (isRecording) stopVoiceRecording();
         }
 
-        async function recognizeAudio(audioBlob) {
-            try {
-                const formData = new FormData();
-                // 百度ASR需要WAV格式
-                const fileName = audioBlob.type === 'audio/wav' ? 'recording.wav' : 'recording.webm';
-                formData.append('audio', audioBlob, fileName);
-
-                const response = await fetch('/api/speech_recognize', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-                if (data.error) {
-                    setStatus('识别失败: ' + data.error);
-                    addBubble('assistant', '语音识别失败: ' + data.error);
-                    return;
-                }
-
-                const text = data.text;
-                if (text) {
-                    voiceReplyEnabled = true;
-                    document.getElementById('command-input').value = text;
-                    sendMessage();
-                } else {
-                    voiceReplyEnabled = false;
-                    setStatus('未识别到文字');
-                    addBubble('assistant', '我没有听清，请再说一次...');
-                }
-
-            } catch (e) {
-                voiceReplyEnabled = false;
-                setStatus('识别失败: ' + e.message);
-                addBubble('assistant', '语音识别失败: ' + e.message);
-            }
-        }
+        // 旧版 recognizeAudio 已被 processVoiceRecording 替代
 
         async function speakText(text) {
             try {
@@ -2055,11 +2074,15 @@
                 window._currentAudio = audio;   // 全局引用
                 
                 audio.play();
-                // 播放完成后释放内存
+                // 播放完成后释放内存，语音模式下自动开始下一轮录音
                 audio.onended = () => {
                     URL.revokeObjectURL(audioUrl);
                     if (window._currentAudio === audio) {
                         window._currentAudio = null;
+                    }
+                    // 语音模式下，回复播放完后自动开始新录音
+                    if (isVoiceMode && !isRecording) {
+                        setTimeout(() => startVoiceRecording(), 500);
                     }
                 };
 
@@ -2341,6 +2364,9 @@
         
         // 初始化主题
         initTheme();
+
+        // 检测音频支持
+        detectAudioSupport();
         
         // 性能监控
         window.performanceData = {
