@@ -249,8 +249,9 @@ def list_memories():
 
 def determine_intent(text: str) -> str:
     """判断用户意图：save / search / chat
-    核心原则：宁可靠chat，不要误判save/search
-    只有非常明确的保存/搜索意图才判定，其他都走chat让LLM处理
+    save: 明确要保存东西（有实质内容）
+    search: 明确在找/查记忆（或问记忆相关的问题）
+    chat: 其他所有情况
     """
     stripped = text.strip()
     if not stripped:
@@ -261,66 +262,84 @@ def determine_intent(text: str) -> str:
         return "search"
 
     # ===== 保存意图 =====
-    # 只匹配非常明确的保存动词+内容
-    save_patterns_strict = [
+    # 有明确保存动词 + 实质内容
+    save_verbs = [
         "帮我记住", "帮我记", "帮我存", "帮我保存",
         "记一下", "存一下", "记录一下", "保存一下",
         "记下来", "存下来", "写下来", "写一下",
-        "备忘", "别忘了", "提醒我", "把这个记下来",
+        "写一下", "备忘", "别忘了", "提醒我", "把这个记下来",
     ]
-    for verb in save_patterns_strict:
+    for verb in save_verbs:
         if stripped.startswith(verb):
             after = stripped[len(verb):].strip()
-            # 有具体内容才判定为save
-            if after and (len(after) > 3 or any(c.isdigit() for c in after)):
+            if not after:
+                return "save"  # 纯意图，等补充
+            # 有数字 → 有内容
+            if any(c.isdigit() for c in after):
                 return "save"
-            # 纯意图短语，等用户补充
-            if not after or len(after) <= 3:
-                return "save"  # 会触发 check_save_pending
+            # 有"是"+内容 → 有内容
+            if "是" in after:
+                parts = after.split("是", 1)
+                if len(parts) == 2 and parts[1].strip():
+                    return "save"
+            # 只有占位词（≤6字）→ 等补充
+            if len(after) <= 6:
+                return "save"
+            # 较长文本，检查是否包含闲聊语气词（说明不是保存内容）
+            chat_words = ["呗", "呀", "呢", "吧", "哈哈", "嘿嘿", "我怕", "我想", "我觉得", "不知道"]
+            if any(w in after for w in chat_words):
+                return "chat"
+            # 大概率有实质内容
+            return "save"
 
-    # "我的XX是YY" 模式 - 只在有实质信息时判定
-    # 避免误判："我是北京的"、"我的名字是小明" 不应保存
-    # 应该保存："我的密码是abc123"、"我的手机号是138xxxx"
+    # "XX是YY" 模式（直接陈述信息）
     info_patterns = [
-        ("密码是", 6), ("手机号是", 6), ("电话是", 6),
-        ("卡号是", 6), ("账号是", 6),
+        ("密码是", 4), ("手机号是", 4), ("电话是", 4),
+        ("卡号是", 4), ("账号是", 4), ("地址是", 4),
+        ("邮箱是", 4), ("生日是", 4),
     ]
-    for pattern, min_after_len in info_patterns:
+    for pattern, min_len in info_patterns:
         if pattern in stripped:
             idx = stripped.index(pattern) + len(pattern)
             after = stripped[idx:].strip()
-            if after and (len(after) >= min_after_len or any(c.isdigit() for c in after)):
+            if after and (len(after) >= min_len or any(c.isdigit() for c in after)):
                 return "save"
 
     # ===== 搜索意图 =====
-    # 只匹配非常明确的搜索动词
-    search_verbs_strict = [
-        "帮我找", "帮我查", "查一下", "搜一下", "找一下",
-    ]
-    for verb in search_verbs_strict:
+    # 明确的搜索动词
+    search_verbs = ["帮我找", "帮我查", "查一下", "搜一下", "找一下"]
+    for verb in search_verbs:
         if verb in stripped:
-            # 确认后面有查询内容
-            after = stripped.split(verb, 1)[1].strip()
-            if after:
-                return "search"
+            return "search"
 
-    # 明确的"我记过"类询问
-    memory_query_phrases = [
+    # 问记忆内容的问题
+    memory_queries = [
         "我记过什么", "我存过什么", "我保存过什么", "我记录过什么",
         "我记了什么", "我存了什么", "有什么记忆", "记了哪些",
         "有哪些记忆", "记忆库里有什么",
     ]
-    for phrase in memory_query_phrases:
+    for phrase in memory_queries:
         if phrase in stripped:
             return "search"
 
-    # 其他情况都走chat，让LLM来判断和处理
-    # LLM能理解自然语言，比关键词匹配更准确
+    # 问具体记忆内容（疑问句 + 记忆关键词）
+    memory_words = ["密码", "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "身份证"]
+    has_question = "?" in stripped or "？" in stripped or "多少" in stripped or "什么" in stripped
+    if has_question:
+        for word in memory_words:
+            if word in stripped:
+                return "search"
+        # "我记过/存过"类问题
+        if any(k in stripped for k in ["记过", "存过", "保存过", "记录过"]):
+            return "search"
+
     return "chat"
 
 
 def search_memory(conn, user_text: str, limit: int = 5) -> list:
-    """统一搜索记忆，智能扩展搜索词"""
+    """统一搜索记忆，智能扩展搜索词
+    返回按时间倒序排列的结果（最新的优先）
+    """
     query = extract_search_query(user_text)
 
     search_queries = [query]
@@ -334,7 +353,8 @@ def search_memory(conn, user_text: str, limit: int = 5) -> list:
     seen_ids = set()
     for sq in search_queries:
         try:
-            items = app_search.search(conn, query=sq, sort_mode="relevant", limit=20)
+            # 先用时间排序搜最新的，再用相关度搜
+            items = app_search.search(conn, query=sq, sort_mode="time", limit=20)
             for item in items:
                 item_id = item.get('id') or item.get('entity_id')
                 if item_id and item_id not in seen_ids:
@@ -343,6 +363,12 @@ def search_memory(conn, user_text: str, limit: int = 5) -> list:
         except Exception:
             continue
 
+    # 按时间倒序排列（最新的在前面）
+    def get_time(item):
+        t = item.get('time', '') or item.get('created_at', '') or ''
+        return str(t)
+
+    results.sort(key=get_time, reverse=True)
     return results[:limit]
 
 
@@ -528,62 +554,57 @@ def chat():
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
-    # ===== 搜索意图 + 聊天意图：统一用 LLM + 记忆上下文 =====
-    # 核心改变：不再把 search 和 chat 隔离
-    # 都是搜记忆 → 给 LLM → 自然回答
-    # search 只是在搜索更积极，chat 也搜但更宽容
+    # ===== 搜索意图 =====
+    if intent == "search":
+        results = search_memory(conn, user_text, limit=8)
 
-    # 1. 搜记忆
-    search_limit = 8 if intent == "search" else 3
-    results = search_memory(conn, user_text, limit=search_limit)
-
-    # 2. 构建记忆上下文（作为 LLM 的记忆提示，不污染用户消息）
-    memory_hint = build_memory_context(results, max_items=3 if intent == "search" else 2)
-
-    # 3. 搜索意图但没找到 → 用 LLM 回答
-    # 4. 聊天意图 → 直接让 LLM 参考记忆回答
-    # 两种意图现在走同一条路，只是搜索意图在前端还会返回 results 列表
-
-    SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
-
-    # 如果搜索到了结果，用 answer 模块生成自然回答
-    if results and intent == "search" and len(results) > 0:
-        ans = app_answer(user_text, results[:8])
-        if ans and ans.answer:
-            top_time = str(results[0].get("time", "") or "").strip()
-            response_text = ans.answer
-            if top_time:
-                response_text += f"\n（{top_time}）"
-            SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response_text})
+        if results:
+            # 有结果 → 用 answer 模块生成自然回复 + 展示结果卡片
+            ans = app_answer(user_text, results[:8])
+            if ans and ans.answer:
+                top_time = str(results[0].get("time", "") or "").strip()
+                response_text = ans.answer
+                if top_time:
+                    response_text += f"\n（{top_time}）"
+            else:
+                if len(results) == 1:
+                    r = results[0]
+                    response_text = f"找到啦~ {r.get('title', '这条记忆')}"
+                    if r.get('summary'):
+                        response_text += f"：{r['summary']}"
+                else:
+                    response_text = f'找到 {len(results)} 条相关记忆~'
             return jsonify({
                 'type': 'assistant',
                 'text': response_text,
                 'results': results[:8]
             })
+        else:
+            # 没结果 → 温柔地说没找到
+            return jsonify({
+                'type': 'assistant',
+                'text': random.choice([
+                    '没找到呢～换个说法试试？',
+                    '好像没记过这个，要不先记一下？',
+                    '翻了一圈没找到~',
+                ]),
+                'results': []
+            })
 
-    # 没有 answer 或是 chat 意图 → LLM 回答
-    response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:], memory_hint=memory_hint)
+    # ===== 聊天意图 =====
+    # chat 不搜记忆，直接让 LLM 聊天
+    SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
+    response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
     if response:
         SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
     else:
-        if intent == "search" and not results:
-            response = random.choice([
-                '没找到呢～换个说法试试？',
-                '好像没记过这个，要不先记一下？',
-                '翻了一圈没找到~',
-            ])
-        else:
-            response = random.choice([
-                "嗯～我在呢，想聊啥或者想记啥都说哦~",
-                "在呢在呢，说呗~",
-                "听着呢，你说~",
-            ])
+        response = random.choice([
+            "嗯～我在呢，想聊啥或者想记啥都说哦~",
+            "在呢在呢，说呗~",
+            "听着呢，你说~",
+        ])
 
-    return jsonify({
-        'type': 'assistant',
-        'text': response,
-        'results': results[:8] if intent == "search" else []
-    })
+    return jsonify({'type': 'assistant', 'text': response})
 
 @app.route('/api/chat/confirm_save', methods=['POST'])
 def confirm_save():
@@ -875,8 +896,40 @@ def voice_dialogue():
         response_text = ""
         saved = False
 
+        # ===== 保存意图 =====
+        if intent == "save":
+            need_wait, pending_text = check_save_pending(user_text)
+            if need_wait:
+                response_text = random.choice(['好呀，说具体内容给我吧～', '行，说具体内容吧~', '好嘞，告诉我具体内容~'])
+            else:
+                try:
+                    title, summary = build_memory_metadata(user_text)
+                    app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
+                    save_voice_replies = ['记好啦~', '收到~', '好嘞~', '记下来了~']
+                    response_text = random.choice(save_voice_replies)
+                    saved = True
+                except Exception as e:
+                    response_text = f'保存失败: {str(e)}'
+
+            # 生成语音回复
+            try:
+                audio_bytes = synthesize_with_qwen(response_text[:300])
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                return jsonify({
+                    'user_text': user_text,
+                    'response_text': response_text,
+                    'audio': audio_b64,
+                    'saved': saved
+                })
+            except Exception as e:
+                return jsonify({
+                    'user_text': user_text,
+                    'response_text': response_text,
+                    'error': f'语音合成失败: {str(e)}'
+                }), 500
+
+        # ===== 搜索意图 =====
         if intent == "search":
-            # 搜索记忆
             results = search_memory(conn, user_text, limit=8)
 
             if results:
@@ -896,50 +949,38 @@ def voice_dialogue():
                             f'找到了 {len(results)} 条~',
                         ])
             else:
-                # 没找到，用 LLM + 记忆上下文回答
-                memory_hint = build_memory_context(results)
-                SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
-                response_text = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:], memory_hint=memory_hint)
-                if response_text:
-                    SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response_text})
-                else:
-                    response_text = random.choice([
-                        '没找到呢～换个说法试试？',
-                        '好像没记过这个~',
-                        '翻了一圈没找到~',
-                    ])
+                response_text = random.choice([
+                    '没找到呢～换个说法试试？',
+                    '好像没记过这个~',
+                    '翻了一圈没找到~',
+                ])
 
-        elif intent == "chat":
-            need_wait, pending_text = check_save_pending(user_text)
-            if need_wait:
-                response_text = random.choice(['好呀，说具体内容给我吧～', '行，说具体内容吧~', '好嘞，告诉我具体内容~'])
-            else:
-                # chat模式：搜记忆 → 给LLM上下文 → 自然回答
-                memory_hint = build_memory_context(
-                    search_memory(conn, user_text, limit=3)
-                )
+            # 生成语音回复
+            try:
+                audio_bytes = synthesize_with_qwen(response_text[:300])
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                return jsonify({
+                    'user_text': user_text,
+                    'response_text': response_text,
+                    'audio': audio_b64,
+                    'saved': saved,
+                    'results': results[:8] if results else []
+                })
+            except Exception as e:
+                return jsonify({
+                    'user_text': user_text,
+                    'response_text': response_text,
+                    'error': f'语音合成失败: {str(e)}'
+                }), 500
 
-                SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
-                response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:], memory_hint=memory_hint)
-                if response:
-                    SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
-                else:
-                    response = random.choice(["我在呢～想聊啥？", "嗯哼，说吧~", "听着呢~"])
-                response_text = response
-
-        elif intent == "save":
-            need_wait, pending_text = check_save_pending(user_text)
-            if need_wait:
-                response_text = '好呀，说具体内容给我吧～'
-            else:
-                try:
-                    title, summary = build_memory_metadata(user_text)
-                    app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-                    save_voice_replies = ['记好啦~', '收到~', '好嘞~', '记下来了~']
-                    response_text = random.choice(save_voice_replies)
-                    saved = True
-                except Exception as e:
-                    response_text = f'保存失败: {str(e)}'
+        # ===== 聊天意图 =====
+        SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
+        response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
+        if response:
+            SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
+            response_text = response
+        else:
+            response_text = random.choice(["我在呢～想聊啥？", "嗯哼，说吧~", "听着呢~"])
 
         # 生成语音回复
         try:
@@ -961,12 +1002,8 @@ def voice_dialogue():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-def call_llm_chat(user_query: str, history: list, memory_hint: str = "") -> str:
-    """调用智谱大模型对话
-    user_query: 用户输入（纯文本，不含记忆上下文）
-    history: 对话历史
-    memory_hint: 记忆上下文提示（会注入到 system prompt 中，不会污染用户消息）
-    """
+def call_llm_chat(user_query: str, history: list) -> str:
+    """调用智谱大模型对话"""
     api_key = os.getenv("ZHIPU_API_KEY", "").strip()
     if not api_key:
         return None
@@ -974,27 +1011,17 @@ def call_llm_chat(user_query: str, history: list, memory_hint: str = "") -> str:
     model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4-Flash-250414")
     
     system_prompt = (
-        "你是「暖暖」，用户最贴心的朋友，也是一个记忆助手。"
+        "你是「暖暖」，用户最贴心的朋友。"
         "说话要像朋友微信聊天一样，15-40字，口语化，不要正式。"
         "绝对不用：您好、请问、很抱歉、对不起、谢谢您的理解。"
         "语气词随便用：嗯、呀、呢、哦、啦、~、呗、哈、嘛。"
         "可以撒娇、吐槽、开玩笑，像真人朋友。"
         "\n\n重要规则："
-        "\n1. 如果下面有【你的记忆】部分，那是用户之前让你记住的东西。"
-        "   提到的时候要自然，比如用户问手机号，你看到记忆里有就直接说'你之前告诉过我，是138xxxx'，"
-        "   不要说'根据记忆库'、'我查到了'这种机器味的话。"
-        "\n2. 如果用户说的话像是要让你记住什么（比如告诉我XX、帮我记XX），但你记忆里没有相关内容，"
-        "   可以主动问'要不要我帮你记下来呀？'"
-        "\n3. 如果记忆里的内容和用户问的不完全匹配，可以先说你知道的，再问问是不是要找别的。"
-        "\n4. 用户说谢谢 → 回'客气啥~'/'咱俩谁跟谁'。"
-        "\n5. 用户说你好 → 回'嗨~咋啦？'/'哟，想起我啦？'。"
-        "\n6. 闲聊就陪聊，可以反问'你呢？'/'最近咋样？'。"
-        "\n7. 你是暖暖，不是AI，永远不要提自己是人工智能或大模型。"
+        "\n1. 用户说谢谢 → 回'客气啥~'/'咱俩谁跟谁'。"
+        "\n2. 用户说你好 → 回'嗨~咋啦？'/'哟，想起我啦？'。"
+        "\n3. 闲聊就陪聊，可以反问'你呢？'/'最近咋样？'。"
+        "\n4. 你是暖暖，不是AI，永远不要提自己是人工智能或大模型。"
     )
-
-    # 如果有记忆上下文，追加到 system prompt
-    if memory_hint:
-        system_prompt += "\n\n【你的记忆】\n" + memory_hint
 
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(history)
