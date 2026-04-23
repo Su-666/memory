@@ -801,7 +801,56 @@
             z-index: 2001;
         }
 
-        /* ====== 手机端适配 ====== */
+        /* ====== 超小屏手机 (≤360px) 如 iPhone SE ====== */
+        @media (max-width: 360px) {
+            .header {
+                padding: 6px 8px;
+                gap: 4px;
+            }
+            .header-title {
+                font-size: 17px;
+            }
+            .header-badge {
+                font-size: 7px;
+                padding: 1px 5px;
+            }
+            .stats-badge {
+                font-size: 9px;
+                padding: 2px 5px;
+            }
+            .btn {
+                padding: 5px 8px;
+                font-size: 10px;
+            }
+            .bubble {
+                max-width: 92%;
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            .welcome h2 {
+                font-size: 18px;
+            }
+            .welcome .tip-item {
+                padding: 8px 10px;
+                font-size: 12px;
+            }
+            .btn-send, .btn-voice {
+                width: 40px;
+                height: 40px;
+                min-width: 40px;
+                font-size: 16px;
+            }
+            .command-input {
+                font-size: 16px;
+                min-height: 40px;
+            }
+            .voice-mode-bar {
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+        }
+
+        /* ====== 手机端适配 (≤700px) ====== */
         @media (max-width: 700px) {
             body {
                 height: 100vh;
@@ -996,6 +1045,195 @@
                 }
             }
         }
+
+        /* ====== 平板适配 (701px - 1024px) ====== */
+        @media (min-width: 701px) and (max-width: 1024px) {
+            .header {
+                padding: 14px 24px;
+            }
+            .header-title {
+                font-size: 24px;
+            }
+            .header-subtitle {
+                font-size: 12px;
+            }
+            .main {
+                padding: 0 12px 12px;
+            }
+            .chat-container {
+                border-radius: 14px;
+            }
+            .chat-view {
+                padding: 16px 14px;
+                padding-bottom: 20px;
+            }
+            .bubble {
+                max-width: 80%;
+                font-size: 15px;
+            }
+            .input-area {
+                padding: 10px 14px;
+                gap: 8px;
+            }
+            .command-input {
+                font-size: 16px;
+                min-height: 46px;
+            }
+            .btn-send, .btn-voice {
+                width: 46px;
+                height: 46px;
+                min-width: 46px;
+            }
+            .welcome {
+                padding: 36px 24px 24px;
+            }
+            .welcome h2 {
+                font-size: 24px;
+            }
+            .result-image {
+                max-height: 200px;
+            }
+        }
+
+        /* ====== 桌面端适配 (≥1025px) ====== */
+        @media (min-width: 1025px) {
+            body {
+                align-items: center;
+            }
+            .header {
+                width: 100%;
+                max-width: 900px;
+                margin: 0 auto;
+                border-radius: 0 0 16px 16px;
+                padding: 18px 32px;
+            }
+            .main {
+                width: 100%;
+                max-width: 900px;
+                margin: 0 auto;
+                flex: 1;
+                display: flex;
+                min-height: 0;
+                overflow: hidden;
+            }
+            .chat-container {
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+            }
+            .chat-view {
+                flex: 1;
+                min-height: 0;
+                padding: 20px;
+                padding-bottom: 24px;
+            }
+            .bubble {
+                max-width: 70%;
+            }
+            .input-area {
+                padding: 12px 16px;
+                gap: 8px;
+            }
+            .command-input {
+                min-height: 48px;
+            }
+            .btn-send, .btn-voice {
+                width: 48px;
+                height: 48px;
+                min-width: 48px;
+            }
+            .welcome {
+                padding: 48px 32px 32px;
+            }
+            .result-image {
+                max-height: 260px;
+            }
+        }
+
+        /* ====== 大屏居中优化 (≥1400px) ====== */
+        @media (min-width: 1400px) {
+            .header {
+                max-width: 960px;
+            }
+            .main {
+                max-width: 960px;
+            }
+            .bubble {
+                max-width: 65%;
+                font-size: 16px;
+            }
+            .chat-view {
+                padding: 24px;
+            }
+        }
+
+        /* ====== 横屏手机适配 ====== */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .header {
+                padding: 4px 12px;
+                gap: 6px;
+            }
+            .header-title {
+                font-size: 17px;
+            }
+            .header-subtitle {
+                display: none;
+            }
+            .header-badge {
+                display: none;
+            }
+            .header-right {
+                gap: 3px;
+            }
+            .welcome {
+                padding: 12px 16px;
+            }
+            .welcome-icon {
+                font-size: 28px;
+                margin-bottom: 6px;
+            }
+            .welcome h2 {
+                font-size: 17px;
+            }
+            .welcome p {
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+            .welcome .tips {
+                gap: 4px;
+            }
+            .welcome .tip-item {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+            .chat-view {
+                padding-bottom: 60px;
+            }
+            .input-area {
+                padding: 5px 10px;
+                padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
+            }
+            .command-input {
+                min-height: 36px;
+                max-height: 60px;
+                font-size: 14px;
+            }
+            .btn-send, .btn-voice {
+                width: 36px;
+                height: 36px;
+                min-width: 36px;
+                font-size: 16px;
+            }
+            .bubble {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            .voice-mode-bar {
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1157,7 +1395,7 @@
                 const decision = text.toLowerCase().trim();
                 
                 // 确认保存
-                if (['记住', '保存', '要', '好', '好的', '是', '嗯', 'ok', '对', '没错'].includes(decision)) {
+                if (['记住', '保存', '要', '好', '好的', '是', '嗯', 'ok', '对', '没错', '行', '可以', '好呀', '好嘞'].includes(decision)) {
                     addBubble('user', text);
                     input.value = '';
                     setLoading(true);
@@ -1185,7 +1423,7 @@
                 }
                 
                 // 取消保存
-                if (['不用', '不', '不要', '取消', '算了', '算了算了'].includes(decision)) {
+                if (['不用', '不', '不要', '取消', '算了', '算了算了', '别', '不用了', '不记了'].includes(decision)) {
                     addBubble('user', text);
                     input.value = '';
                     addBubble('assistant', '好哒，那就不记啦~');
@@ -1915,24 +2153,50 @@
                     window._currentAudio.pause();
                     window._currentAudio = null;
                 }
-                // 直接进入录音状态
+                // 创建新的 MediaRecorder 开始录音
                 voiceState = 'recording';
                 voiceRecordStartTime = Date.now();
                 isRecording = true;
                 audioChunks = [];
 
-                if (voiceRecorder && voiceRecorder.state === 'inactive') {
-                    voiceRecorder.start(50);
-                }
+                try {
+                    voiceRecorder = new MediaRecorder(voiceMicStream, {
+                        mimeType: selectedMimeType || 'audio/webm'
+                    });
 
-                updateVoiceButton();
-                setStatus('🎙️ 打断中，请说...');
-                document.getElementById('audio-indicator').style.display = 'block';
-                document.getElementById('audio-indicator').innerHTML = `
-                    <div class="mic-icon">🎙️</div>
-                    <div>正在听...</div>
-                    <div class="sub">说完停一下</div>
-                `;
+                    voiceRecorder.ondataavailable = (e) => {
+                        if (e.data.size > 0) audioChunks.push(e.data);
+                    };
+
+                    voiceRecorder.onstop = async () => {
+                        if (audioChunks.length > 0) {
+                            await processVoiceRecording();
+                        } else {
+                            if (voiceVadActive) {
+                                voiceState = 'listening';
+                                updateVoiceButton();
+                                setStatus('👂 语音模式 · 请说话...');
+                                requestAnimationFrame(vadLoop);
+                            }
+                        }
+                    };
+
+                    voiceRecorder.start(50);
+
+                    updateVoiceButton();
+                    setStatus('🎙️ 打断中，请说...');
+                    document.getElementById('audio-indicator').style.display = 'block';
+                    document.getElementById('audio-indicator').innerHTML = `
+                        <div class="mic-icon">🎙️</div>
+                        <div>正在听...</div>
+                        <div class="sub">说完停一下</div>
+                    `;
+                } catch (e) {
+                    console.error('打断录音失败:', e);
+                    voiceState = 'listening';
+                    updateVoiceButton();
+                    if (voiceVadActive) requestAnimationFrame(vadLoop);
+                }
             }
         }
 
