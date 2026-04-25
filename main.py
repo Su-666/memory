@@ -307,7 +307,7 @@ def determine_intent(text: str) -> str:
 
     # ===== 搜索意图 =====
     # 明确的搜索动词
-    search_verbs = ["帮我找", "帮我查", "查一下", "搜一下", "找一下"]
+    search_verbs = ["帮我找", "帮我查", "查一下", "搜一下", "找一下", "查询"]
     for verb in search_verbs:
         if verb in stripped:
             return "search"
@@ -409,38 +409,51 @@ def build_memory_context(results: list, max_items: int = 3) -> str:
 def check_save_pending(text: str) -> tuple:
     """检查用户是否只表达了保存意图但没有具体内容
     返回 (need_wait, pending_text)
-    例：
-        "帮我记住" → (True, "帮我记住")  # 等待补充
-        "帮我记住我的手机号是138xxxx" → (False, None)  # 有内容，直接保存
+    核心规则：只有"是"+内容 或 数字 才算有实质内容
     """
     text_stripped = text.strip()
 
-    # 如果有"是"且后面有内容，说明是完整陈述，不需要等待
+    # 有"是"且后面有实质内容 → 不需要等待
     if "是" in text_stripped:
         parts = text_stripped.split("是", 1)
-        if len(parts) == 2 and parts[1].strip() and len(parts[1].strip()) > 2:
+        after_is = parts[1].strip() if len(parts) == 2 else ""
+        # "是"后面有内容（超过2个字或包含数字）
+        if after_is and (len(after_is) > 2 or any(c.isdigit() for c in after_is)):
             return (False, None)
 
-    # 如果有数字，说明有具体内容
-    if any(c.isdigit() for c in text_stripped) and len(text_stripped) > 8:
+    # 有数字 → 有具体内容
+    if any(c.isdigit() for c in text_stripped):
         return (False, None)
 
-    # 纯意图短语列表（后面没有具体内容时触发等待）
-    pure_intent = [
+    # 纯意图短语（后面没有内容或只有占位词）
+    save_verbs = [
         "帮我记住", "帮我记", "帮我存", "帮我保存",
         "记一下", "存一下", "记录一下", "保存一下",
-        "记下来", "存下来", "写下来",
+        "记下来", "存下来", "写下来", "写一下",
+        "备忘", "别忘了", "提醒我",
     ]
-
-    for phrase in pure_intent:
-        if text_stripped.startswith(phrase):
-            after = text_stripped[len(phrase):].strip()
-            # 后面几乎没有内容 → 等待补充
-            if len(after) < 4:
+    for verb in save_verbs:
+        if text_stripped.startswith(verb):
+            after = text_stripped[len(verb):].strip()
+            # 后面没有内容 → 等待
+            if not after:
                 return (True, text_stripped)
+            # 后面只有占位词（如"我的手机号"、"密码"）→ 等待
+            # 占位词特征：长度短（<=8）且只包含记忆关键词
+            placeholder_keywords = ["我的手机号", "我的电话", "我的地址", "我的生日",
+                                     "我的邮箱", "我的卡号", "我的账号", "我的密码",
+                                     "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "密码"]
+            # 去掉"我的"前缀再比较
+            after_clean = after.replace("我的", "").strip()
+            if any(after_clean == kw or after == kw for kw in placeholder_keywords):
+                return (True, text_stripped)
+            # 后面内容很短（<=3字）→ 等待
+            if len(after) <= 3:
+                return (True, text_stripped)
+            # 其他情况认为有内容
             return (False, None)
 
-    # 如果文本很短（<=6字）且只有保存词，可能是纯意图
+    # 短文本纯保存词
     if len(text_stripped) <= 6:
         short_intent = ["记住", "记下", "保存", "存下", "备忘"]
         if any(w == text_stripped for w in short_intent):
