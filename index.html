@@ -2847,12 +2847,15 @@
 
                 const data = await response.json();
                 
+                // 先记录数量再清空
+                const uploadedCount = pendingFiles.length;
+                
                 // 清空暂存
                 clearPendingFiles();
                 document.getElementById('file-caption').value = '';
                 
                 if (data.success) {
-                    addBubble('user', `[上传${caption ? ': ' + caption : ''}] ${pendingFiles.length}个文件`);
+                    addBubble('user', `[上传${caption ? ': ' + caption : ''}] ${uploadedCount}个文件`);
                     addBubble('assistant', data.message || '文件已保存到记忆库。');
                 } else {
                     addBubble('assistant', '上传失败: ' + (data.error || '未知错误'));

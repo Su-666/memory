@@ -78,11 +78,14 @@ def load_env():
 
 load_env()
 
-# 启动时打印百度API配置状态（调试用）
-print("[STARTUP] Baidu API Configuration Status:", file=sys.stderr, flush=True)
+# 启动时打印API配置状态（调试用）
+print("[STARTUP] API Configuration Status:", file=sys.stderr, flush=True)
 print(f"[STARTUP] BAIDU_APP_ID: {'✓ Set' if os.getenv('BAIDU_APP_ID', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
 print(f"[STARTUP] BAIDU_API_KEY: {'✓ Set' if os.getenv('BAIDU_API_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
 print(f"[STARTUP] BAIDU_SECRET_KEY: {'✓ Set' if os.getenv('BAIDU_SECRET_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
+print(f"[STARTUP] ZHIPU_API_KEY: {'✓ Set' if os.getenv('ZHIPU_API_KEY', '').strip() else '✗ Not Set'}", file=sys.stderr, flush=True)
+print(f"[STARTUP] LOCAL_AGENT_MODEL: {os.getenv('LOCAL_AGENT_MODEL', 'GLM-4-Flash-250414 (default)')}", file=sys.stderr, flush=True)
+print(f"[STARTUP] LOCAL_AGENT_VISION_MODEL: {os.getenv('LOCAL_AGENT_VISION_MODEL', 'glm-4v-flash (default)')}", file=sys.stderr, flush=True)
 
 # ============ 优化功能 ============
 
@@ -353,8 +356,8 @@ def search_memory(conn, user_text: str, limit: int = 5) -> list:
     seen_ids = set()
     for sq in search_queries:
         try:
-            # 先用时间排序搜最新的，再用相关度搜
-            items = app_search.search(conn, query=sq, sort_mode="time", limit=20)
+            # 搜相关结果
+            items = app_search.search(conn, query=sq, sort_mode="relevant", limit=20)
             for item in items:
                 item_id = item.get('id') or item.get('entity_id')
                 if item_id and item_id not in seen_ids:
@@ -363,12 +366,6 @@ def search_memory(conn, user_text: str, limit: int = 5) -> list:
         except Exception:
             continue
 
-    # 按时间倒序排列（最新的在前面）
-    def get_time(item):
-        t = item.get('time', '') or item.get('created_at', '') or ''
-        return str(t)
-
-    results.sort(key=get_time, reverse=True)
     return results[:limit]
 
 
@@ -732,8 +729,11 @@ def upload_file():
                                 extra_patch={"vision": {"caption": u.caption, "tags": u.tags, "text_in_image": u.text_in_image}},
                                 commit=False,
                             )
-                        except Exception:
-                            pass
+                            print(f"[图片理解] ID={mid}, caption={u.caption}, tags={u.tags}")
+                        except Exception as e:
+                            print(f"[图片理解失败] ID={mid}, error={e}")
+                            import traceback
+                            traceback.print_exc()
                 conn2.commit()
             threading.Thread(target=background_understand, daemon=True).start()
             return jsonify({'success': True, 'message': f'已保存 {len(ids)} 个文件，图片正在后台理解中。'})
