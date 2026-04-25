@@ -1492,13 +1492,22 @@
 
                 addBubble('assistant', data.text);
 
-                        if (data.results && data.results.length > 0) {
+                if (data.results && data.results.length > 0) {
                     showResults(data.results);
                 }
 
                 // 语音模式下自动朗读回复
                 if (data.text && voiceVadActive) {
-                    speakText(data.text);
+                    // 如果有搜索结果，把结果内容也加入朗读
+                    let textToSpeak = data.text;
+                    if (data.results && data.results.length > 0) {
+                        const r = data.results[0];
+                        const summary = r.summary || r.body || '';
+                        if (summary && summary.length < 100) {
+                            textToSpeak += '。' + summary;
+                        }
+                    }
+                    speakText(textToSpeak);
                 }
                 voiceReplyEnabled = false;
 
@@ -2091,10 +2100,10 @@
 
                 if (data.error) {
                     document.getElementById('audio-indicator').style.display = 'none';
-                    setStatus('识别失败');
                     addBubble('assistant', '没听清呢，再说一次呗~');
                     if (voiceVadActive) {
                         voiceState = 'listening';
+                        voiceEnergyBuffer = [];
                         updateVoiceButton();
                         setStatus('👂 语音模式 · 请说话...');
                         requestAnimationFrame(vadLoop);
@@ -2110,11 +2119,14 @@
 
                     document.getElementById('command-input').value = text;
                     await sendMessage();
+                    // sendMessage 会触发 speakText（如果 voiceVadActive），
+                    // speakText 的 onended 会调用 continueVoiceLoop 回到 listening
                 } else {
                     document.getElementById('audio-indicator').style.display = 'none';
-                    setStatus('没听清呢');
+                    addBubble('assistant', '嗯？没听清，再说一次呗~');
                     if (voiceVadActive) {
                         voiceState = 'listening';
+                        voiceEnergyBuffer = [];
                         updateVoiceButton();
                         setStatus('👂 语音模式 · 请说话...');
                         requestAnimationFrame(vadLoop);
@@ -2124,9 +2136,10 @@
             } catch (error) {
                 console.error('语音处理失败:', error);
                 document.getElementById('audio-indicator').style.display = 'none';
-                setStatus('处理失败');
+                addBubble('assistant', '处理出了点问题，再试一次？');
                 if (voiceVadActive) {
                     voiceState = 'listening';
+                    voiceEnergyBuffer = [];
                     updateVoiceButton();
                     setStatus('👂 语音模式 · 请说话...');
                     requestAnimationFrame(vadLoop);
