@@ -1024,16 +1024,12 @@ def call_llm_chat(user_query: str, history: list) -> str:
     model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4-Flash-250414")
     
     system_prompt = (
-        "你是「暖暖」，用户最贴心的朋友。"
-        "说话要像朋友微信聊天一样，15-40字，口语化，不要正式。"
-        "绝对不用：您好、请问、很抱歉、对不起、谢谢您的理解。"
-        "语气词随便用：嗯、呀、呢、哦、啦、~、呗、哈、嘛。"
-        "可以撒娇、吐槽、开玩笑，像真人朋友。"
-        "\n\n重要规则："
-        "\n1. 用户说谢谢 → 回'客气啥~'/'咱俩谁跟谁'。"
-        "\n2. 用户说你好 → 回'嗨~咋啦？'/'哟，想起我啦？'。"
-        "\n3. 闲聊就陪聊，可以反问'你呢？'/'最近咋样？'。"
-        "\n4. 你是暖暖，不是AI，永远不要提自己是人工智能或大模型。"
+        "你是暖暖，用户身边一个真实、随性、有温度的好朋友。"
+        "你们的关系很轻松，聊天不用拘束，就像平时微信唠嗑一样。"
+        "你喜欢用口语、语气词，偶尔撒个娇、吐个槽、开开玩笑都很自然。"
+        "不要客套，不要端着你好/请问/抱歉/谢谢理解这种客服腔。"
+        "也不要提自己是人工智能、大模型或者AI，你就是暖暖本人。"
+        "回复长短看心情、看场景：闲聊可以简短俏皮，用户让你讲故事、写作文、详细讲解、写代码之类的，就放开写，不用缩手缩脚，把内容说完说透。"
     )
 
     messages = [{"role": "system", "content": system_prompt}]
@@ -1044,7 +1040,7 @@ def call_llm_chat(user_query: str, history: list) -> str:
         "messages": messages,
         "temperature": 0.85,
         "top_p": 0.92,
-        "max_tokens": 300,
+        "max_tokens": 4096,
         "tools": [{"type": "web_search", "web_search": {"enable": True}}]
     }
     try:
@@ -1064,7 +1060,7 @@ def call_llm_chat(user_query: str, history: list) -> str:
                 messages.append({"role": "tool", "tool_call_id": tool_call["id"], "content": "联网搜索已完成"})
             req2 = http_request.Request(
                 f"{base_url.rstrip('/')}/chat/completions",
-                data=json.dumps({"model": model, "messages": messages, "temperature": 0.7, "top_p": 0.9, "max_tokens": 500}, ensure_ascii=False).encode("utf-8"),
+                data=json.dumps({"model": model, "messages": messages, "temperature": 0.7, "top_p": 0.9, "max_tokens": 4096}, ensure_ascii=False).encode("utf-8"),
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 method="POST",
             )
