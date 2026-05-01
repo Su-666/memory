@@ -778,40 +778,40 @@ def open_file():
 def open_file_folder():
     return jsonify({'success': False, 'message': '此功能在云端不可用'})
 
-# 语音
+# 语音 — 缓存百度 AipSpeech 客户端（避免每次请求重新创建）
+_baidu_client = None
+_baidu_client_lock = threading.Lock()
+
+def _get_baidu_client():
+    global _baidu_client
+    if _baidu_client is not None:
+        return _baidu_client
+    with _baidu_client_lock:
+        if _baidu_client is not None:
+            return _baidu_client
+        from aip import AipSpeech
+        app_id = os.getenv("BAIDU_APP_ID", "").strip()
+        api_key = os.getenv("BAIDU_API_KEY", "").strip()
+        secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
+        if not all([app_id, api_key, secret_key]):
+            missing = [k for k, v in {"BAIDU_APP_ID": app_id, "BAIDU_API_KEY": api_key, "BAIDU_SECRET_KEY": secret_key}.items() if not v]
+            raise RuntimeError(f"百度语音API配置不完整，缺失: {', '.join(missing)}")
+        _baidu_client = AipSpeech(app_id, api_key, secret_key)
+        return _baidu_client
+
 def synthesize_with_qwen(text: str) -> bytes:
     try:
-        from aip import AipSpeech
-    except ImportError as e:
-        print(f"[ERROR] Failed to import AipSpeech: {e}", file=sys.stderr, flush=True)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        raise RuntimeError(f"百度AIP包导入失败: {e}")
-    app_id = os.getenv("BAIDU_APP_ID", "").strip()
-    api_key_baidu = os.getenv("BAIDU_API_KEY", "").strip()
-    secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
-    
-    print(f"[TTS DEBUG] APP_ID={bool(app_id)}, API_KEY={bool(api_key_baidu)}, SECRET={bool(secret_key)}", file=sys.stderr, flush=True)
-    
-    if not all([app_id, api_key_baidu, secret_key]):
-        missing = []
-        if not app_id:
-            missing.append("BAIDU_APP_ID")
-        if not api_key_baidu:
-            missing.append("BAIDU_API_KEY")
-        if not secret_key:
-            missing.append("BAIDU_SECRET_KEY")
-        raise RuntimeError(f"百度语音API配置不完整，缺失: {', '.join(missing)}")
+        client = _get_baidu_client()
+    except Exception as e:
+        print(f"[ERROR] Failed to get Baidu client: {e}", file=sys.stderr, flush=True)
+        raise
     try:
-        client = AipSpeech(app_id, api_key_baidu, secret_key)
         text = text.strip()[:300]
-        # aue=6 是 MP3 格式，直接返回不需要再包 WAV
         result = client.synthesis(text, 'zh', 1, {'per': 5, 'spd': 5, 'pit': 5, 'vol': 7, 'aue': 6})
         if isinstance(result, dict):
             raise RuntimeError(f"百度语音合成失败: {result.get('err_msg', '未知错误')}")
         if not result or len(result) < 100:
             raise RuntimeError("百度语音合成返回空音频")
-        # aue=6 返回的是 MP3，前端可以直接播放
         return result
     except Exception as e:
         raise RuntimeError(f"百度语音合成失败: {e}")
@@ -820,48 +820,14 @@ def synthesize_with_qwen(text: str) -> bytes:
 def recognize_with_baidu(wav_bytes: bytes) -> str:
     """使用百度语音识别API将音频转为文字"""
     try:
-        from aip import AipSpeech
-    except ImportError as e:
-        print(f"[ERROR] Failed to import AipSpeech: {e}", file=sys.stderr, flush=True)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        raise RuntimeError(f"百度AIP包导入失败: {e}")
-
-    app_id = os.getenv("BAIDU_APP_ID", "").strip()
-    api_key = os.getenv("BAIDU_API_KEY", "").strip()
-    secret_key = os.getenv("BAIDU_SECRET_KEY", "").strip()
-
-    print(f"[ASR DEBUG] APP_ID={bool(app_id)}, API_KEY={bool(api_key)}, SECRET={bool(secret_key)}", file=sys.stderr, flush=True)
-
-    if not all([app_id, api_key, secret_key]):
-        missing = []
-        if not app_id:
-            missing.append("BAIDU_APP_ID")
-        if not api_key:
-            missing.append("BAIDU_API_KEY")
-        if not secret_key:
-            missing.append("BAIDU_SECRET_KEY")
-        raise RuntimeError(f"百度语音API配置不完整，缺失: {', '.join(missing)}")
+        client = _get_baidu_client()
+    except Exception as e:
+        print(f"[ERROR] Failed to get Baidu client: {e}", file=sys.stderr, flush=True)
+        raise
 
     try:
-        client = AipSpeech(app_id, api_key, secret_key)
-
-        # 保存为临时WAV文件供百度API使用
-        import tempfile
         print(f"[ASR] 音频大小: {len(wav_bytes)} bytes", file=sys.stderr, flush=True)
-        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
-            tmp.write(wav_bytes)
-            tmp_path = tmp.name
-
-        try:
-            with open(tmp_path, 'rb') as f:
-                result = client.asr(f.read(), 'wav', 16000, {
-                    'dev_pid': 1537,  # 识别中文
-                })
-        finally:
-            import os as os_module
-            os_module.unlink(tmp_path)
-
+        result = client.asr(wav_bytes, 'wav', 16000, {'dev_pid': 1537})
         print(f"[ASR] 识别结果: {result}", file=sys.stderr, flush=True)
         if 'result' in result and result['result']:
             return result['result'][0].strip()
