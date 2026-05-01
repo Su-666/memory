@@ -1480,40 +1480,51 @@
                 const data = await response.json();
                 if (data.error) {
                     addBubble('assistant', '哎呀，出了点小问题: ' + data.error);
-                    setLoading(false);
                     setStatus('出错了');
-                    return;
-                }
+                    // 语音模式下出错也要继续监听，否则会卡住
+                    if (voiceVadActive) {
+                        continueVoiceLoop();
+                    }
+                } else {
+                    if (data.pending_save) {
+                        pendingSaveText = data.pending_save;
+                        showPendingIndicator(true);
+                    }
 
-                if (data.pending_save) {
-                    pendingSaveText = data.pending_save;
-                    showPendingIndicator(true);
-                }
+                    addBubble('assistant', data.text);
 
-                addBubble('assistant', data.text);
-
-                if (data.results && data.results.length > 0) {
-                    showResults(data.results);
-                }
-
-                // 语音模式下自动朗读回复
-                if (data.text && voiceVadActive) {
-                    // 如果有搜索结果，把结果内容也加入朗读
-                    let textToSpeak = data.text;
                     if (data.results && data.results.length > 0) {
-                        const r = data.results[0];
-                        const summary = r.summary || r.body || '';
-                        if (summary && summary.length < 100) {
-                            textToSpeak += '。' + summary;
+                        showResults(data.results);
+                    }
+
+                    // 语音模式下自动朗读回复
+                    if (voiceVadActive) {
+                        if (data.text) {
+                            // 如果有搜索结果，把结果内容也加入朗读
+                            let textToSpeak = data.text;
+                            if (data.results && data.results.length > 0) {
+                                const r = data.results[0];
+                                const summary = r.summary || r.body || '';
+                                if (summary && summary.length < 100) {
+                                    textToSpeak += '。' + summary;
+                                }
+                            }
+                            speakText(textToSpeak);
+                        } else {
+                            // 没有回复文本，直接继续监听
+                            continueVoiceLoop();
                         }
                     }
-                    speakText(textToSpeak);
+                    voiceReplyEnabled = false;
                 }
-                voiceReplyEnabled = false;
 
             } catch (e) {
                 addBubble('assistant', '网络好像不太给力，稍后再试试？');
                 setStatus('网络错误');
+                // 语音模式下网络错误也要继续监听
+                if (voiceVadActive) {
+                    continueVoiceLoop();
+                }
             }
 
             hideTypingIndicator();

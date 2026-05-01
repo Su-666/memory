@@ -305,3 +305,71 @@ def list_recent(conn: sqlite3.Connection, *, limit: int = 30) -> list[dict[str, 
             }
         )
     return items
+
+
+def get_all_tags(conn: sqlite3.Connection) -> list[str]:
+    """从所有记忆的 extra_json 中提取标签"""
+    tag_set: set[str] = set()
+    for row in conn.execute("SELECT extra_json FROM memories").fetchall():
+        try:
+            extra = json.loads(row["extra_json"] or "{}")
+            if "tags" in extra and isinstance(extra["tags"], list):
+                for t in extra["tags"]:
+                    s = str(t).strip()
+                    if s:
+                        tag_set.add(s)
+        except Exception:
+            continue
+    return sorted(tag_set)
+
+
+def get_total_memories(conn: sqlite3.Connection) -> int:
+    """获取记忆总数"""
+    row = conn.execute("SELECT COUNT(*) as count FROM memories").fetchone()
+    return int(row["count"]) if row else 0
+
+
+def search_advanced(conn: sqlite3.Connection, conditions: dict) -> list[dict[str, Any]]:
+    """高级搜索：支持关键词、标签、日期范围"""
+    query = conditions.get('query', '').strip()
+    tags = conditions.get('tags', [])
+    date_from = conditions.get('date_from')
+    date_to = conditions.get('date_to')
+    limit = conditions.get('limit', 20)
+
+    sql = "SELECT id, title, summary, body, file_path, extra_json, updated_at FROM memories WHERE 1=1"
+    params: list = []
+
+    if query:
+        sql += " AND (title LIKE ? OR summary LIKE ? OR body LIKE ?)"
+        like = f"%{query}%"
+        params.extend([like, like, like])
+
+    if date_from:
+        sql += " AND updated_at >= ?"
+        params.append(date_from)
+
+    if date_to:
+        sql += " AND updated_at <= ?"
+        params.append(date_to)
+
+    if tags:
+        for tag in tags:
+            sql += " AND extra_json LIKE ?"
+            params.append(f"%{tag}%")
+
+    sql += " ORDER BY updated_at DESC LIMIT ?"
+    params.append(limit)
+
+    items: list[dict[str, Any]] = []
+    for row in conn.execute(sql, params).fetchall():
+        items.append({
+            "id": int(row["id"]),
+            "title": row["title"],
+            "summary": row["summary"],
+            "body": (row["body"] or "")[:200],
+            "file_path": str(row["file_path"] or "").strip(),
+            "time": row["updated_at"],
+            "extra": json.loads(row["extra_json"] or "{}"),
+        })
+    return items

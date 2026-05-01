@@ -89,28 +89,38 @@ print(f"[STARTUP] LOCAL_AGENT_VISION_MODEL: {os.getenv('LOCAL_AGENT_VISION_MODEL
 
 # ============ 优化功能 ============
 
-# 简单缓存系统
+# 简单缓存系统（线程安全）
 class SimpleCache:
     def __init__(self, max_size=100, ttl=300):  # 5分钟TTL
         self.cache = {}
         self.max_size = max_size
         self.ttl = ttl
+        self._lock = threading.Lock()
 
     def get(self, key):
-        if key in self.cache:
-            data, timestamp = self.cache[key]
-            if time.time() - timestamp < self.ttl:
-                return data
-            else:
-                del self.cache[key]
-        return None
+        with self._lock:
+            if key in self.cache:
+                data, timestamp = self.cache[key]
+                if time.time() - timestamp < self.ttl:
+                    return data
+                else:
+                    del self.cache[key]
+            return None
 
     def set(self, key, value):
-        if len(self.cache) >= self.max_size:
-            # 简单清理策略：删除最旧的条目
-            oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
-            del self.cache[oldest_key]
-        self.cache[key] = (value, time.time())
+        with self._lock:
+            if len(self.cache) >= self.max_size:
+                # 简单清理策略：删除最旧的条目
+                oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
+                del self.cache[oldest_key]
+            self.cache[key] = (value, time.time())
+
+    def invalidate(self, prefix):
+        """清除匹配前缀的所有缓存条目"""
+        with self._lock:
+            keys_to_remove = [k for k in self.cache if k.startswith(prefix)]
+            for k in keys_to_remove:
+                del self.cache[k]
 
 # 全局缓存实例
 response_cache = SimpleCache()
@@ -121,6 +131,8 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests = {}
+        self._last_prune = time.time()
+        self._prune_interval = 300  # 每5分钟清理一次过期客户端
 
     def is_allowed(self, client_id):
         now = time.time()
@@ -132,6 +144,16 @@ class RateLimiter:
             req_time for req_time in self.requests[client_id]
             if now - req_time < self.window_seconds
         ]
+
+        # 定期清理长时间无活动的客户端，防止内存泄漏
+        if now - self._last_prune > self._prune_interval:
+            self._last_prune = now
+            stale_clients = [
+                cid for cid, times in self.requests.items()
+                if not times or now - times[-1] > self.window_seconds * 10
+            ]
+            for cid in stale_clients:
+                del self.requests[cid]
 
         if len(self.requests[client_id]) < self.max_requests:
             self.requests[client_id].append(now)
@@ -712,34 +734,42 @@ def upload_file():
         ids = app_repo.remember_attachments(conn, paths=paths, caption=caption, vault_root=vault_root)
         if ids:
             def background_understand():
-                conn2 = get_db_conn()
-                for mid in ids:
-                    m = app_repo.get_memory(conn2, int(mid))
-                    if not m:
-                        continue
-                    fp = str(m.get("file_path", "") or "")
-                    extra = m.get("extra") or {}
-                    if extra.get("media_type") == "image" and fp:
-                        try:
-                            u = understand_image(fp)
-                            body_parts = []
-                            if u.tags:
-                                body_parts.append("标签：" + "、".join(str(t) for t in u.tags if str(t).strip()))
-                            if u.text_in_image:
-                                body_parts.append("图片文字：" + u.text_in_image)
-                            new_body = "\n".join(body_parts).strip()
-                            app_repo.update_memory(
-                                conn2, memory_id=mid, summary=u.caption or None,
-                                body=new_body or None,
-                                extra_patch={"vision": {"caption": u.caption, "tags": u.tags, "text_in_image": u.text_in_image}},
-                                commit=False,
-                            )
-                            print(f"[图片理解] ID={mid}, caption={u.caption}, tags={u.tags}")
-                        except Exception as e:
-                            print(f"[图片理解失败] ID={mid}, error={e}")
-                            import traceback
-                            traceback.print_exc()
-                conn2.commit()
+                try:
+                    conn2 = get_db_conn()
+                    success_count = 0
+                    fail_count = 0
+                    for mid in ids:
+                        m = app_repo.get_memory(conn2, int(mid))
+                        if not m:
+                            continue
+                        fp = str(m.get("file_path", "") or "")
+                        extra = m.get("extra") or {}
+                        if extra.get("media_type") == "image" and fp:
+                            try:
+                                u = understand_image(fp)
+                                body_parts = []
+                                if u.tags:
+                                    body_parts.append("标签：" + "、".join(str(t) for t in u.tags if str(t).strip()))
+                                if u.text_in_image:
+                                    body_parts.append("图片文字：" + u.text_in_image)
+                                new_body = "\n".join(body_parts).strip()
+                                app_repo.update_memory(
+                                    conn2, memory_id=mid, summary=u.caption or None,
+                                    body=new_body or None,
+                                    extra_patch={"vision": {"caption": u.caption, "tags": u.tags, "text_in_image": u.text_in_image}},
+                                    commit=False,
+                                )
+                                success_count += 1
+                                print(f"[图片理解] ID={mid}, caption={u.caption}, tags={u.tags}")
+                            except Exception as e:
+                                fail_count += 1
+                                print(f"[图片理解失败] ID={mid}, error={e}", file=sys.stderr, flush=True)
+                    conn2.commit()
+                    print(f"[图片理解完成] 成功={success_count}, 失败={fail_count}", file=sys.stderr, flush=True)
+                except Exception as e:
+                    print(f"[图片理解线程异常] {e}", file=sys.stderr, flush=True)
+                    import traceback
+                    traceback.print_exc(file=sys.stderr)
             threading.Thread(target=background_understand, daemon=True).start()
             return jsonify({'success': True, 'message': f'已保存 {len(ids)} 个文件，图片正在后台理解中。'})
         else:
@@ -1094,17 +1124,37 @@ IMAGE_MIME_TYPES = {
 
 def _is_safe_path(file_path):
     try:
-        p = Path(file_path).resolve()
-        if '..' in file_path and str(p) != str(Path(file_path).absolute()):
+        # 先拒绝明显的路径遍历尝试
+        if '..' in file_path or '~' in file_path:
             return False, "检测到路径遍历"
+
+        p = Path(file_path).resolve()
         ext = p.suffix.lower()
         if ext not in IMAGE_MIME_TYPES:
             return False, f"不允许的文件类型: {ext}"
+
+        # 确保解析后的路径在允许的目录内（vault 或 data 目录）
+        allowed_roots = [
+            VAULT_DIR.resolve(),
+            DATA_DIR.resolve(),
+        ]
+        if not any(is_path_under(p, root) for root in allowed_roots):
+            return False, "路径不在允许的目录内"
+
         if p.exists() and p.stat().st_size > 50 * 1024 * 1024:
             return False, "文件过大"
         return True, None
     except Exception as e:
         return False, str(e)
+
+
+def is_path_under(path: Path, parent: Path) -> bool:
+    """检查 path 是否在 parent 目录下"""
+    try:
+        path.resolve().relative_to(parent)
+        return True
+    except ValueError:
+        return False
 
 @app.route('/api/file/image')
 def get_image():
@@ -1259,10 +1309,10 @@ def update_memory(memory_id):
             return jsonify({'error': '内容不能为空'}), 400
 
         conn = get_db_conn()
-        app_repo.update_memory(conn, memory_id, content)
+        app_repo.update_memory(conn, memory_id=memory_id, body=content)
         # 清除相关缓存
-        response_cache.cache = {k: v for k, v in response_cache.cache.items()
-                               if not k.startswith(f"recent_memories") and not k.startswith("stats")}
+        response_cache.invalidate("recent_memories")
+        response_cache.invalidate("stats")
         return jsonify({'success': True, 'message': '记忆更新成功'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1276,8 +1326,8 @@ def delete_memory(memory_id):
         conn = get_db_conn()
         app_repo.delete_memory(conn, memory_id)
         # 清除相关缓存
-        response_cache.cache = {k: v for k, v in response_cache.cache.items()
-                               if not k.startswith(f"recent_memories") and not k.startswith("stats")}
+        response_cache.invalidate("recent_memories")
+        response_cache.invalidate("stats")
         return jsonify({'success': True, 'message': '记忆删除成功'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
