@@ -1508,7 +1508,7 @@
                                     textToSpeak += '。' + summary;
                                 }
                             }
-                            speakText(textToSpeak);
+                            await speakText(textToSpeak);
                         } else {
                             // 没有回复文本，直接继续监听
                             continueVoiceLoop();
@@ -2100,7 +2100,7 @@
             }
         }
 
-        // 处理录音结果
+        // 处理录音结果（使用合并 API 一次完成 ASR + Chat + TTS，减少延迟）
         async function processVoiceRecording() {
             try {
                 let audioBlob;
@@ -2115,34 +2115,42 @@
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.wav');
 
-                const response = await fetch('/api/speech_recognize', {
+                setStatus('🔄 正在识别和回复...');
+
+                // 使用合并 API：一次请求完成 ASR + Chat + TTS
+                const response = await fetch('/api/voice_dialogue', {
                     method: 'POST',
                     body: formData
                 });
 
                 const data = await response.json();
 
+                document.getElementById('audio-indicator').style.display = 'none';
+
                 if (data.error) {
-                    document.getElementById('audio-indicator').style.display = 'none';
-                    addBubble('assistant', '没听清呢，再说一次呗~');
+                    addBubble('assistant', data.error);
                     resetToListening();
                     return;
                 }
 
-                const text = (data.text || '').trim();
-                if (text) {
-                    document.getElementById('audio-indicator').style.display = 'none';
+                // 显示用户说的话
+                if (data.user_text) {
+                    addBubble('user', data.user_text);
+                }
+
+                // 显示助手回复
+                if (data.response_text) {
+                    addBubble('assistant', data.response_text);
+                }
+
+                // 播放回复语音
+                if (data.audio) {
                     voiceState = 'speaking';
                     updateVoiceButton();
-
-                    document.getElementById('command-input').value = text;
-                    await sendMessage();
-                    // sendMessage 内部会调用 speakText → onended → continueVoiceLoop
-                    // 如果 sendMessage 后 voiceState 仍为 speaking 但 speakText 未被调用（无回复文本），
-                    // continueVoiceLoop 会在 sendMessage 内部被调用
+                    await playVoiceAudio(data.audio);
+                    // playVoiceAudio 的 onended 会调用 continueVoiceLoop
                 } else {
-                    document.getElementById('audio-indicator').style.display = 'none';
-                    addBubble('assistant', '嗯？没听清，再说一次呗~');
+                    // 没有音频，直接继续监听
                     resetToListening();
                 }
 
@@ -2151,6 +2159,69 @@
                 document.getElementById('audio-indicator').style.display = 'none';
                 addBubble('assistant', '处理出了点问题，再试一次？');
                 resetToListening();
+            }
+        }
+
+        // 播放 base64 编码的语音音频（从 voice_dialogue 返回）
+        async function playVoiceAudio(audioB64) {
+            try {
+                const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
+                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
+
+                if (window._currentAudio) {
+                    window._currentAudio.pause();
+                    window._currentAudio = null;
+                }
+
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
+                audio._blobUrl = audioUrl;
+                window._currentAudio = audio;
+
+                // 安全阀
+                const speakTimeout = setTimeout(() => {
+                    console.warn('[TTS] 朗读超时，自动继续');
+                    if (window._currentAudio === audio) {
+                        audio.pause();
+                        window._currentAudio = null;
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    continueVoiceLoop();
+                }, 30000);
+
+                // 先绑定事件，再播放
+                audio.onended = () => {
+                    clearTimeout(speakTimeout);
+                    stopBargeInDetection();
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
+                    continueVoiceLoop();
+                };
+
+                audio.onerror = () => {
+                    clearTimeout(speakTimeout);
+                    stopBargeInDetection();
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
+                    continueVoiceLoop();
+                };
+
+                setStatus('🔊 正在朗读...');
+                await audio.play();
+
+                // 延迟启动打断检测
+                if (voiceVadActive) {
+                    setTimeout(() => {
+                        if (voiceState === 'speaking' && window._currentAudio === audio) {
+                            startBargeInDetection();
+                        }
+                    }, 1500);
+                }
+
+            } catch (e) {
+                console.error('语音播放失败:', e);
+                stopBargeInDetection();
+                continueVoiceLoop();
             }
         }
 
@@ -2617,25 +2688,12 @@
                         URL.revokeObjectURL(audioUrl);
                     }
                     continueVoiceLoop();
-                }, (cleanText.length * 200) + 15000); // 每字约200ms + 15秒缓冲
+                }, (cleanText.length * 200) + 15000);
 
-                // 启动打断检测
-                if (voiceVadActive) {
-                    startBargeInDetection();
-                }
-
-                setStatus('🔊 正在朗读...');
-
-                audio.play().catch(err => {
-                    console.warn('音频播放失败:', err);
-                    clearTimeout(speakTimeout);
-                    URL.revokeObjectURL(audioUrl);
-                    if (window._currentAudio === audio) window._currentAudio = null;
-                    continueVoiceLoop();
-                });
-
+                // 【关键】先绑定事件处理器，再调用 play()，防止短音频在绑定前就播完
                 audio.onended = () => {
                     clearTimeout(speakTimeout);
+                    stopBargeInDetection();
                     URL.revokeObjectURL(audioUrl);
                     if (window._currentAudio === audio) {
                         window._currentAudio = null;
@@ -2645,13 +2703,29 @@
 
                 audio.onerror = () => {
                     clearTimeout(speakTimeout);
+                    stopBargeInDetection();
                     URL.revokeObjectURL(audioUrl);
                     if (window._currentAudio === audio) window._currentAudio = null;
                     continueVoiceLoop();
                 };
 
+                setStatus('🔊 正在朗读...');
+
+                // 等待播放开始
+                await audio.play();
+
+                // 【关键】播放开始后延迟 1.5 秒再启动打断检测，避免 TTS 自身声音触发打断
+                if (voiceVadActive) {
+                    setTimeout(() => {
+                        if (voiceState === 'speaking' && window._currentAudio === audio) {
+                            startBargeInDetection();
+                        }
+                    }, 1500);
+                }
+
             } catch (e) {
                 console.error('语音播放失败:', e);
+                stopBargeInDetection();
                 continueVoiceLoop();
             }
         }
@@ -2673,6 +2747,12 @@
                     interruptSpeaking();
                 }
             }, 200);
+        }
+        function stopBargeInDetection() {
+            if (bargeInInterval) {
+                clearInterval(bargeInInterval);
+                bargeInInterval = null;
+            }
         }
 
         // 文件暂存区
