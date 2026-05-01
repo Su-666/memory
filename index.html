@@ -2094,7 +2094,7 @@
             }
         }
 
-        // 处理录音结果（使用合并 API 一次完成 ASR + Chat + TTS，减少延迟）
+        // 处理录音结果 — 与 sendMessage 完全一致的逻辑，加上语音播报
         async function processVoiceRecording() {
             try {
                 let audioBlob;
@@ -2110,30 +2110,31 @@
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.wav');
 
+                // 如果有待保存内容，传给后端处理确认/取消/合并
+                if (pendingSaveText) {
+                    formData.append('pending_save_text', pendingSaveText);
+                }
+
                 setStatus('🔄 正在识别和回复...');
 
-                // 使用合并 API：一次请求完成 ASR + Chat + TTS
                 const response = await fetch('/api/voice_dialogue', {
                     method: 'POST',
                     body: formData
                 });
 
                 const data = await response.json();
-
                 document.getElementById('audio-indicator').style.display = 'none';
 
                 if (data.error) {
                     console.error('[voice_dialogue] 错误:', data.error);
-                    addBubble('assistant', '出了点问题，再说一次吧~');
+                    addBubble('assistant', '哎呀，出了点小问题: ' + data.error);
                     resetToListening();
                     return;
                 }
 
-                // ASR 未识别到文字（retry=true），显示提示后继续监听
+                // ASR 未识别到文字（retry=true）
                 if (data.retry) {
-                    if (data.response_text) {
-                        addBubble('assistant', data.response_text);
-                    }
+                    if (data.text) addBubble('assistant', data.text);
                     resetToListening();
                     return;
                 }
@@ -2142,7 +2143,7 @@
                 if (data.user_text) {
                     addBubble('user', data.user_text);
 
-                    // 退出词检测（与桌面端一致）
+                    // 退出词检测
                     const exitWords = ['退出', '不用了', '结束', '拜拜', '再见', '停'];
                     if (exitWords.some(w => data.user_text.includes(w))) {
                         addBubble('assistant', '好的，有什么需要再叫我~');
@@ -2151,9 +2152,28 @@
                     }
                 }
 
+                // --- 以下与 sendMessage 的响应处理完全一致 ---
+
+                // 如果后端处理了待保存（saved=true），清除前端的 pending 状态
+                if (data.saved && pendingSaveText) {
+                    pendingSaveText = null;
+                    showPendingIndicator(false);
+                }
+
+                // 新的待保存确认状态
+                if (data.pending_save) {
+                    pendingSaveText = data.pending_save;
+                    showPendingIndicator(true);
+                }
+
                 // 显示助手回复
-                if (data.response_text) {
-                    addBubble('assistant', data.response_text);
+                if (data.text) {
+                    addBubble('assistant', data.text);
+                }
+
+                // 搜索结果
+                if (data.results && data.results.length > 0) {
+                    showResults(data.results);
                 }
 
                 // 播放回复语音
@@ -2163,7 +2183,6 @@
                     await playVoiceAudio(data.audio);
                     // playVoiceAudio 的 onended 会调用 continueVoiceLoop
                 } else {
-                    // 没有音频，直接继续监听
                     resetToListening();
                 }
 

@@ -880,7 +880,8 @@ def speech_synthesize():
 
 @app.route('/api/voice_dialogue', methods=['POST'])
 def voice_dialogue():
-    """语音对话API - 接收语音，处理，返回回复语音"""
+    """语音对话API - ASR后走与 /api/chat 完全相同的逻辑，再加TTS。
+    如果前端传了 pending_save_text，则先处理确认/取消流程。"""
     if 'audio' not in request.files:
         return jsonify({'error': '请上传音频文件'}), 400
 
@@ -893,34 +894,72 @@ def voice_dialogue():
 
         user_text = recognize_with_baidu(audio_data)
         if not user_text:
-            # ASR 未识别到文字，返回友好响应而非错误，让前端继续监听
             return jsonify({
                 'user_text': '',
-                'response_text': '没听清呢，再说一次呗~',
+                'text': '没听清呢，再说一次呗~',
                 'audio': None,
                 'retry': True,
             })
 
         conn = init_vault()
         vault_root = get_vault_root()
-        result = _handle_intent(conn, vault_root, user_text)
-        response_text = result['text']
 
-        # 生成语音回复
+        # 前端有待保存内容 → 走 confirm_save 逻辑（与 sendMessage 一致）
+        pending_save_text = request.form.get('pending_save_text', '').strip()
+        if pending_save_text:
+            decision = user_text.strip()
+            confirm_words = {"记住", "保存", "要", "好", "好的", "是", "嗯", "ok", "对", "没错", "行", "可以", "好呀", "好嘞", "好吧", "行吧", "嗯嗯", "好哒", "确定", "当然", "要的"}
+            cancel_words = {"不用", "不", "不要", "取消", "算了", "算了算了", "别", "不用了", "不记了", "不必", "不需要", "不保存", "不想要"}
+
+            if decision in confirm_words:
+                title, summary = build_memory_metadata(pending_save_text)
+                app_repo.remember_text_smart(conn, text=pending_save_text, vault_root=vault_root, title=title, summary=summary)
+                reply = random.choice(['记好啦~', '收到~', '好嘞~', '记下来了~', '搞定~'])
+            elif decision in cancel_words:
+                reply = random.choice(['好哒，那就不记啦~', '好嘞，不记了~', '行，不保存了~'])
+            else:
+                # 用户说了具体内容，合并保存
+                final_text = pending_save_text + ' ' + user_text
+                title, summary = build_memory_metadata(final_text)
+                app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
+                reply = random.choice(['嗯嗯，帮你记好啦~', '收到~ 合并记下来了', '好嘞，都记下了~'])
+
+            resp = {'user_text': user_text, 'type': 'assistant', 'text': reply, 'saved': True}
+            try:
+                audio_bytes = synthesize_with_qwen(reply[:150])
+                resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
+            except Exception:
+                resp['audio'] = None
+            return jsonify(resp)
+
+        # 普通对话 — 与 /api/chat 完全一致的逻辑
+        result = _handle_intent(conn, vault_root, user_text)
+
+        if result.get('error'):
+            return jsonify({'error': result['text']}), 500
+
         resp = {
             'user_text': user_text,
-            'response_text': response_text,
-            'saved': result.get('saved', False),
+            'type': 'assistant',
+            'text': result['text'],
         }
         if result.get('results'):
             resp['results'] = result['results']
+        if result.get('pending_save'):
+            resp['pending_save'] = result['pending_save']
+        if result.get('saved'):
+            resp['saved'] = True
 
+        # TTS 语音合成
         try:
-            audio_bytes = synthesize_with_qwen(response_text[:300])
+            tts_text = result['text'][:300]
+            if result.get('pending_save'):
+                tts_text = result['text'][:150]
+            audio_bytes = synthesize_with_qwen(tts_text)
             resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
         except Exception as e:
             print(f"[voice_dialogue] TTS 失败: {e}", file=sys.stderr, flush=True)
-            resp['audio'] = None  # TTS 失败不阻塞，前端会用文字显示
+            resp['audio'] = None
 
         return jsonify(resp)
 
