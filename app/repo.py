@@ -263,7 +263,7 @@ def prune_missing_file_memories(conn: sqlite3.Connection) -> int:
     return len(ids_to_remove)
 
 
-def bump_open_count(conn: sqlite3.Connection, *, entity_type: str, entity_id: int) -> None:
+def bump_open_count(conn: sqlite3.Connection, *, entity_type: str, entity_id: int, commit: bool = True) -> None:
     now = _now()
     conn.execute(
         """
@@ -275,7 +275,8 @@ def bump_open_count(conn: sqlite3.Connection, *, entity_type: str, entity_id: in
         """,
         (entity_type, entity_id, now),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def list_recent(conn: sqlite3.Connection, *, limit: int = 30) -> list[dict[str, Any]]:
@@ -308,9 +309,9 @@ def list_recent(conn: sqlite3.Connection, *, limit: int = 30) -> list[dict[str, 
 
 
 def get_all_tags(conn: sqlite3.Connection) -> list[str]:
-    """从所有记忆的 extra_json 中提取标签"""
+    """从所有记忆的 extra_json 中提取标签（限制扫描行数避免全表扫描）"""
     tag_set: set[str] = set()
-    for row in conn.execute("SELECT extra_json FROM memories").fetchall():
+    for row in conn.execute("SELECT extra_json FROM memories WHERE extra_json LIKE '%tags%' LIMIT 1000").fetchall():
         try:
             extra = json.loads(row["extra_json"] or "{}")
             if "tags" in extra and isinstance(extra["tags"], list):

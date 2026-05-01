@@ -157,13 +157,13 @@
         }
 
         body.dark-mode .bubble-results {
-            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
-            border-color: #4a6360;
+            background: linear-gradient(135deg, var(--card-bg) 0%, #1a2e2c 100%);
+            border-color: var(--card-border);
         }
 
         body.dark-mode .result-item {
-            background: #1a2e2c;
-            border-color: #4a6360;
+            background: var(--card-bg);
+            border-color: var(--card-border);
         }
 
         body.dark-mode .result-item:hover {
@@ -1252,7 +1252,7 @@
 
     <div class="main">
         <div class="chat-container">
-            <div class="chat-view" id="chat-view">
+            <div class="chat-view" id="chat-view" aria-live="polite" role="log">
                 <div class="welcome">
                     <div class="welcome-icon">🌸</div>
                     <h2>嗨，我是暖暖~</h2>
@@ -1272,8 +1272,8 @@
                 <span>语音对话模式 · 说完自动识别 · 点击🎤关闭</span>
             </div>
             <div class="input-area" id="drop-area">
-                <textarea class="command-input" id="command-input" placeholder="跟我说说~（回车发送）" onkeypress="handleKeyPress(event)" rows="1" style="resize: none; overflow: hidden;"></textarea>
-                <button class="btn-voice" id="voice-btn" title="点击开始语音对话" onclick="toggleVoice()" ontouchstart="voiceLongPressStart(event)" ontouchend="voiceLongPressEnd(event)" onmousedown="voiceLongPressStart(event)" onmouseup="voiceLongPressEnd(event)">🎤</button>
+                <textarea class="command-input" id="command-input" placeholder="跟我说说~（回车发送）" onkeypress="handleKeyPress(event)" rows="1" maxlength="2000" style="resize: none; overflow: hidden;"></textarea>
+                <button class="btn-voice" id="voice-btn" title="点击开始语音对话" aria-label="语音对话" onclick="toggleVoice()" ontouchstart="voiceLongPressStart(event)" ontouchend="voiceLongPressEnd(event)" onmousedown="voiceLongPressStart(event)" onmouseup="voiceLongPressEnd(event)">🎤</button>
                 <button class="btn-send" id="send-btn" title="发送" onclick="sendMessage()">➜</button>
             </div>
         </div>
@@ -1394,7 +1394,7 @@
                 const decision = text.toLowerCase().trim();
                 
                 // 确认保存
-                if (['记住', '保存', '要', '好', '好的', '是', '嗯', 'ok', '对', '没错', '行', '可以', '好呀', '好嘞'].includes(decision)) {
+                if (['记住', '保存', '要', '好', '好的', '是', '嗯', 'ok', '对', '没错', '行', '可以', '好呀', '好嘞', '好吧', '行吧', '嗯嗯', '好哒', '确定', '当然', '要的'].includes(decision)) {
                     addBubble('user', text);
                     input.value = '';
                     setLoading(true);
@@ -1422,7 +1422,7 @@
                 }
                 
                 // 取消保存
-                if (['不用', '不', '不要', '取消', '算了', '算了算了', '别', '不用了', '不记了'].includes(decision)) {
+                if (['不用', '不', '不要', '取消', '算了', '算了算了', '别', '不用了', '不记了', '不必', '不需要', '不保存', '不想要'].includes(decision)) {
                     addBubble('user', text);
                     input.value = '';
                     addBubble('assistant', '好哒，那就不记啦~');
@@ -1655,9 +1655,7 @@
 
         function escapeHtml(text) {
             if (!text) return '';
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
         }
 
         // 直接用图片URL显示大图（最可靠的方式）
@@ -1837,6 +1835,7 @@
         let voiceVadActive = false;     // VAD循环是否运行中
         let voiceVadTimeout = null;     // 静音检测定时器
         let voiceEnergyBuffer = [];     // 音频能量缓冲区
+        let voiceFreqDataArray = null;  // 预分配的频率数据缓冲区（避免每帧分配）
         const VAD_THRESHOLD = 0.015;    // 语音检测阈值（降低以更好检测静音）
         const VAD_SILENCE_MS = 1500;    // 静音超过此时间停止录音
         const VAD_MIN_RECORD_MS = 600;  // 最少录音时间
@@ -1995,14 +1994,16 @@
             if (!voiceAnalyser) return false;
 
             const bufferLength = voiceAnalyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
-            voiceAnalyser.getByteFrequencyData(dataArray);
+            if (!voiceFreqDataArray || voiceFreqDataArray.length !== bufferLength) {
+                voiceFreqDataArray = new Uint8Array(bufferLength);
+            }
+            voiceAnalyser.getByteFrequencyData(voiceFreqDataArray);
 
             // 计算音频能量（关注人声频率 85-4000Hz）
             let sum = 0;
             const voiceEnd = Math.min(bufferLength, Math.floor(bufferLength * 0.5));
             for (let i = 0; i < voiceEnd; i++) {
-                sum += dataArray[i] * dataArray[i];
+                sum += voiceFreqDataArray[i] * voiceFreqDataArray[i];
             }
             const rms = Math.sqrt(sum / voiceEnd) / 128.0;
 
@@ -2563,15 +2564,6 @@
             }
         }
 
-        // 旧版 convertAndRecognize 已被新语音系统替代
-
-        function stopRecording() {
-            // 委托给新的语音系统
-            if (isRecording) stopVoiceRecording();
-        }
-
-        // 旧版 recognizeAudio 已被 processVoiceRecording 替代
-
         async function speakText(text) {
             try {
                 let cleanText = text.replace(/\n/g, ' ')
@@ -2963,35 +2955,6 @@
 
         // 检测音频支持
         detectAudioSupport();
-        
-        // 性能监控
-        window.performanceData = {
-            apiCalls: 0,
-            totalResponseTime: 0,
-            errors: 0
-        };
-        
-        // 拦截fetch请求进行性能监控
-        const originalFetch = window.fetch;
-        window.fetch = async function(...args) {
-            const startTime = performance.now();
-            window.performanceData.apiCalls++;
-            
-            try {
-                const response = await originalFetch.apply(this, args);
-                const duration = performance.now() - startTime;
-                window.performanceData.totalResponseTime += duration;
-                
-                if (!response.ok) {
-                    window.performanceData.errors++;
-                }
-                
-                return response;
-            } catch (error) {
-                window.performanceData.errors++;
-                throw error;
-            }
-        };
     </script>
 </body>
 </html>

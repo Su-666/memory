@@ -62,7 +62,7 @@ except ModuleNotFoundError as e:
 
 # Flask 应用
 app = Flask(__name__, static_folder='static', static_url_path='/static')
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 PROJECT_ROOT = project_root
 
@@ -131,34 +131,36 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.requests = {}
+        self._lock = threading.Lock()
         self._last_prune = time.time()
         self._prune_interval = 300  # 每5分钟清理一次过期客户端
 
     def is_allowed(self, client_id):
         now = time.time()
-        if client_id not in self.requests:
-            self.requests[client_id] = []
+        with self._lock:
+            if client_id not in self.requests:
+                self.requests[client_id] = []
 
-        # 清理过期请求
-        self.requests[client_id] = [
-            req_time for req_time in self.requests[client_id]
-            if now - req_time < self.window_seconds
-        ]
-
-        # 定期清理长时间无活动的客户端，防止内存泄漏
-        if now - self._last_prune > self._prune_interval:
-            self._last_prune = now
-            stale_clients = [
-                cid for cid, times in self.requests.items()
-                if not times or now - times[-1] > self.window_seconds * 10
+            # 清理过期请求
+            self.requests[client_id] = [
+                req_time for req_time in self.requests[client_id]
+                if now - req_time < self.window_seconds
             ]
-            for cid in stale_clients:
-                del self.requests[cid]
 
-        if len(self.requests[client_id]) < self.max_requests:
-            self.requests[client_id].append(now)
-            return True
-        return False
+            # 定期清理长时间无活动的客户端，防止内存泄漏
+            if now - self._last_prune > self._prune_interval:
+                self._last_prune = now
+                stale_clients = [
+                    cid for cid, times in self.requests.items()
+                    if not times or now - times[-1] > self.window_seconds * 10
+                ]
+                for cid in stale_clients:
+                    del self.requests[cid]
+
+            if len(self.requests[client_id]) < self.max_requests:
+                self.requests[client_id].append(now)
+                return True
+            return False
 
 # 全局速率限制器
 rate_limiter = RateLimiter(max_requests=20, window_seconds=60)  # 每分钟最多20个请求
@@ -166,6 +168,13 @@ rate_limiter = RateLimiter(max_requests=20, window_seconds=60)  # 每分钟最�
 def get_client_id():
     """获取客户端标识（基于IP）"""
     return request.remote_addr or "unknown"
+
+def _safe_get_json():
+    """安全获取 request.get_json()，自动处理 None"""
+    data = request.get_json(silent=True)
+    if data is None:
+        return {}
+    return data
 
 def rate_limit(f):
     """速率限制装饰器"""
@@ -246,6 +255,7 @@ def init_vault():
     return conn
 
 SESSION_CHAT_HISTORY = []
+_chat_history_lock = threading.Lock()
 
 # ============ 路由 ============
 
@@ -511,18 +521,12 @@ def build_memory_metadata(text: str) -> tuple:
     fallback_summary = summary or ((text[:80] + "…") if len(text) > 80 else (text or "记忆"))
     return (fallback_title, fallback_summary)
 
-# ============ API 路由 ============
+# ============ 共享意图处理 ============
 
-@app.route('/api/chat', methods=['POST'])
-def chat():
-    global SESSION_CHAT_HISTORY
-    data = request.get_json()
-    user_text = data.get('text', '').strip()
-    if not user_text:
-        return jsonify({'error': '请输入内容'}), 400
-
-    conn = init_vault()
-    vault_root = get_vault_root()
+def _handle_intent(conn, vault_root: Path, user_text: str) -> dict:
+    """处理用户意图，返回结果 dict（不含 audio）。
+    返回格式: {'text': str, 'results': list, 'saved': bool, 'pending_save': str|None}
+    """
     intent = determine_intent(user_text)
     print(f"[意图判断] text='{user_text[:30]}' → intent={intent}", file=sys.stderr, flush=True)
 
@@ -530,37 +534,39 @@ def chat():
     if intent == "save":
         need_wait, pending_text = check_save_pending(user_text)
         if need_wait:
-            wait_replies = [
-                '好呀，具体是什么内容呢？说给我听听～',
-                '行，说具体内容吧~',
-                '好嘞，告诉我具体内容~',
-                '嗯嗯，说具体内容给我吧~',
-            ]
-            return jsonify({
-                'type': 'assistant',
-                'text': random.choice(wait_replies),
-                'pending_save': pending_text
-            })
+            return {
+                'text': random.choice([
+                    '好呀，具体是什么内容呢？说给我听听～',
+                    '行，说具体内容吧~',
+                    '好嘞，告诉我具体内容~',
+                    '嗯嗯，说具体内容给我吧~',
+                ]),
+                'pending_save': pending_text,
+                'results': [],
+                'saved': False,
+            }
         try:
             title, summary = build_memory_metadata(user_text)
             app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-            save_replies = [
-                '记好啦~ 以后忘了随时问我呀',
-                '收到~ 帮你记下了',
-                '好嘞~ 记住了',
-                '记好啦，放心~',
-                '搞定~ 记好了',
-            ]
-            return jsonify({'type': 'assistant', 'text': random.choice(save_replies), 'saved': True})
+            return {
+                'text': random.choice([
+                    '记好啦~ 以后忘了随时问我呀',
+                    '收到~ 帮你记下了',
+                    '好嘞~ 记住了',
+                    '记好啦，放心~',
+                    '搞定~ 记好了',
+                ]),
+                'saved': True,
+                'results': [],
+                'pending_save': None,
+            }
         except Exception as e:
-            return jsonify({'error': str(e)}), 500
+            return {'text': f'保存失败: {str(e)}', 'error': True, 'results': [], 'saved': False, 'pending_save': None}
 
     # ===== 搜索意图 =====
     if intent == "search":
         results = search_memory(conn, user_text, limit=8)
-
         if results:
-            # 有结果 → 用 answer 模块生成自然回复 + 展示结果卡片
             ans = app_answer(user_text, results[:8])
             if ans and ans.answer:
                 top_time = str(results[0].get("time", "") or "").strip()
@@ -575,42 +581,65 @@ def chat():
                         response_text += f"：{r['summary']}"
                 else:
                     response_text = f'找到 {len(results)} 条相关记忆~'
-            return jsonify({
-                'type': 'assistant',
-                'text': response_text,
-                'results': results[:8]
-            })
+            return {'text': response_text, 'results': results[:8], 'saved': False, 'pending_save': None}
         else:
-            # 没结果 → 温柔地说没找到
-            return jsonify({
-                'type': 'assistant',
+            return {
                 'text': random.choice([
                     '没找到呢～换个说法试试？',
                     '好像没记过这个，要不先记一下？',
                     '翻了一圈没找到~',
                 ]),
-                'results': []
-            })
+                'results': [],
+                'saved': False,
+                'pending_save': None,
+            }
 
     # ===== 聊天意图 =====
-    # chat 不搜记忆，直接让 LLM 聊天
-    SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
-    response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
+    with _chat_history_lock:
+        SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
+        history_snapshot = SESSION_CHAT_HISTORY[-10:]
+    response = call_llm_chat(user_text, history_snapshot)
     if response:
-        SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
+        with _chat_history_lock:
+            SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
     else:
         response = random.choice([
             "嗯～我在呢，想聊啥或者想记啥都说哦~",
             "在呢在呢，说呗~",
             "听着呢，你说~",
         ])
+    return {'text': response, 'results': [], 'saved': False, 'pending_save': None}
 
-    return jsonify({'type': 'assistant', 'text': response})
+
+# ============ API 路由 ============
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    data = _safe_get_json()
+    user_text = data.get('text', '').strip()
+    if not user_text:
+        return jsonify({'error': '请输入内容'}), 400
+
+    conn = init_vault()
+    vault_root = get_vault_root()
+    result = _handle_intent(conn, vault_root, user_text)
+
+    if result.get('error'):
+        return jsonify({'error': result['text']}), 500
+
+    resp = {'type': 'assistant', 'text': result['text']}
+    if result.get('results'):
+        resp['results'] = result['results']
+    if result.get('pending_save'):
+        resp['pending_save'] = result['pending_save']
+    if result.get('saved'):
+        resp['saved'] = True
+    return jsonify(resp)
 
 @app.route('/api/chat/confirm_save', methods=['POST'])
 def confirm_save():
     global SESSION_CHAT_HISTORY
-    data = request.get_json()
+    data = _safe_get_json()
     text = data.get('text', '').strip()
     to_save = data.get('pending_text', '').strip()
     if not to_save:
@@ -641,7 +670,7 @@ def confirm_save():
 
 @app.route('/api/search', methods=['POST'])
 def search_memories():
-    data = request.get_json()
+    data = _safe_get_json()
     query = data.get('query', '').strip()
     if not query:
         return jsonify({'error': '请输入搜索内容'}), 400
@@ -654,7 +683,7 @@ def search_memories():
 
 @app.route('/api/save', methods=['POST'])
 def save_memory():
-    data = request.get_json()
+    data = _safe_get_json()
     text = data.get('text', '').strip()
     if not text:
         return jsonify({'error': '请输入要保存的内容'}), 400
@@ -868,7 +897,7 @@ def speech_recognize():
 
 @app.route('/api/speech_synthesize', methods=['POST'])
 def speech_synthesize():
-    data = request.get_json()
+    data = _safe_get_json()
     text = data.get('text', '').strip()
     if not text:
         return jsonify({'error': '请输入要合成的内容'}), 400
@@ -887,123 +916,32 @@ def voice_dialogue():
 
     audio_file = request.files['audio']
     try:
-        # 读取音频数据
         audio_data = audio_file.read()
-
         if len(audio_data) < 1000:
             return jsonify({'error': '音频数据太短'}), 400
 
-        # 语音识别
         user_text = recognize_with_baidu(audio_data)
         if not user_text:
             return jsonify({'error': '未能识别到文字，请重试'}), 400
 
-        # 初始化数据库和vault
         conn = init_vault()
         vault_root = get_vault_root()
-
-        # 判断意图
-        intent = determine_intent(user_text)
-
-        response_text = ""
-        saved = False
-
-        # ===== 保存意图 =====
-        if intent == "save":
-            need_wait, pending_text = check_save_pending(user_text)
-            if need_wait:
-                response_text = random.choice(['好呀，说具体内容给我吧～', '行，说具体内容吧~', '好嘞，告诉我具体内容~'])
-            else:
-                try:
-                    title, summary = build_memory_metadata(user_text)
-                    app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
-                    save_voice_replies = ['记好啦~', '收到~', '好嘞~', '记下来了~']
-                    response_text = random.choice(save_voice_replies)
-                    saved = True
-                except Exception as e:
-                    response_text = f'保存失败: {str(e)}'
-
-            # 生成语音回复
-            try:
-                audio_bytes = synthesize_with_qwen(response_text[:300])
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                return jsonify({
-                    'user_text': user_text,
-                    'response_text': response_text,
-                    'audio': audio_b64,
-                    'saved': saved
-                })
-            except Exception as e:
-                return jsonify({
-                    'user_text': user_text,
-                    'response_text': response_text,
-                    'error': f'语音合成失败: {str(e)}'
-                }), 500
-
-        # ===== 搜索意图 =====
-        if intent == "search":
-            results = search_memory(conn, user_text, limit=8)
-
-            if results:
-                ans = app_answer(user_text, results[:8])
-                if ans and ans.answer:
-                    top_time = str(results[0].get("time", "") or "").strip()
-                    response_text = ans.answer
-                    if top_time:
-                        response_text += f"\n（{top_time}）"
-                else:
-                    if len(results) == 1:
-                        r = results[0]
-                        response_text = f"找到啦~ {r.get('title', '')}：{r.get('summary', r.get('body', ''))[:60]}"
-                    else:
-                        response_text = random.choice([
-                            f'找到 {len(results)} 条相关记忆~',
-                            f'找到了 {len(results)} 条~',
-                        ])
-            else:
-                response_text = random.choice([
-                    '没找到呢～换个说法试试？',
-                    '好像没记过这个~',
-                    '翻了一圈没找到~',
-                ])
-
-            # 生成语音回复
-            try:
-                audio_bytes = synthesize_with_qwen(response_text[:300])
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                return jsonify({
-                    'user_text': user_text,
-                    'response_text': response_text,
-                    'audio': audio_b64,
-                    'saved': saved,
-                    'results': results[:8] if results else []
-                })
-            except Exception as e:
-                return jsonify({
-                    'user_text': user_text,
-                    'response_text': response_text,
-                    'error': f'语音合成失败: {str(e)}'
-                }), 500
-
-        # ===== 聊天意图 =====
-        SESSION_CHAT_HISTORY.append({"role": "user", "content": user_text})
-        response = call_llm_chat(user_text, SESSION_CHAT_HISTORY[-10:])
-        if response:
-            SESSION_CHAT_HISTORY.append({"role": "assistant", "content": response})
-            response_text = response
-        else:
-            response_text = random.choice(["我在呢～想聊啥？", "嗯哼，说吧~", "听着呢~"])
+        result = _handle_intent(conn, vault_root, user_text)
+        response_text = result['text']
 
         # 生成语音回复
         try:
             audio_bytes = synthesize_with_qwen(response_text[:300])
             audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-            return jsonify({
+            resp = {
                 'user_text': user_text,
                 'response_text': response_text,
                 'audio': audio_b64,
-                'saved': saved
-            })
+                'saved': result.get('saved', False),
+            }
+            if result.get('results'):
+                resp['results'] = result['results']
+            return jsonify(resp)
         except Exception as e:
             return jsonify({
                 'user_text': user_text,
@@ -1077,7 +1015,8 @@ def call_llm_chat(user_query: str, history: list) -> str:
 @app.route('/api/clear', methods=['POST'])
 def clear_history():
     global SESSION_CHAT_HISTORY
-    SESSION_CHAT_HISTORY = []
+    with _chat_history_lock:
+        SESSION_CHAT_HISTORY = []
     return jsonify({'success': True})
 
 # 图片
@@ -1165,7 +1104,7 @@ def recent_memories():
 def search_memories_advanced():
     """高级记忆搜索"""
     try:
-        data = request.get_json()
+        data = _safe_get_json()
         query = data.get('query', '').strip()
         tags = data.get('tags', [])
         date_from = data.get('date_from')
@@ -1224,23 +1163,14 @@ def get_stats():
     """获取统计信息"""
     try:
         conn = get_db_conn()
-        # 获取总记忆数
-        total_row = conn.execute("SELECT COUNT(*) as count FROM memories").fetchone()
-        total_memories = int(total_row["count"]) if total_row else 0
-        
+        total_memories = app_repo.get_total_memories(conn)
         recent_memories = app_repo.list_recent(conn, limit=10)
-
-        # 计算标签统计
-        tag_counts = {}
-        for memory in recent_memories:
-            if 'tags' in memory and memory['tags']:
-                for tag in memory['tags']:
-                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        all_tags = app_repo.get_all_tags(conn)
 
         stats = {
             'total_memories': total_memories,
             'recent_count': len(recent_memories),
-            'top_tags': sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)[:10],
+            'tags': all_tags[:20],
             'last_updated': recent_memories[0].get('time') if recent_memories else None
         }
 
@@ -1267,7 +1197,7 @@ def get_memory(memory_id):
 def update_memory(memory_id):
     """更新记忆"""
     try:
-        data = request.get_json()
+        data = _safe_get_json()
         content = data.get('content', '').strip()
         if not content:
             return jsonify({'error': '内容不能为空'}), 400
