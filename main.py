@@ -274,94 +274,57 @@ def list_memories():
 
 def determine_intent(text: str) -> str:
     """判断用户意图：save / search / chat
-    save: 明确要保存东西（有实质内容）
-    search: 明确在找/查记忆（或问记忆相关的问题）
-    chat: 其他所有情况
+    检测顺序：明确命令 → 问候/问句 → 关键词匹配 → 默认 chat
+    与桌面端 _plan_intent 保持一致
     """
     stripped = text.strip()
     if not stripped:
         return "chat"
+
+    # 明确命令
     if stripped.startswith(("/聊", "/chat")):
         return "chat"
     if stripped.startswith(("/搜", "/search")):
         return "search"
 
-    # ===== 保存意图 =====
-    # 有明确保存动词 + 实质内容
-    save_verbs = [
-        "帮我记住", "帮我记", "帮我存", "帮我保存",
-        "记一下", "存一下", "记录一下", "保存一下",
-        "记下来", "存下来", "写下来", "写一下",
-        "写一下", "备忘", "别忘了", "提醒我", "把这个记下来",
-    ]
-    for verb in save_verbs:
-        if stripped.startswith(verb):
-            after = stripped[len(verb):].strip()
-            if not after:
-                return "save"  # 纯意图，等补充
-            # 有数字 → 有内容
-            if any(c.isdigit() for c in after):
-                return "save"
-            # 有"是"+内容 → 有内容
-            if "是" in after:
-                parts = after.split("是", 1)
-                if len(parts) == 2 and parts[1].strip():
-                    return "save"
-            # 只有占位词（≤6字）→ 等补充
-            if len(after) <= 6:
-                return "save"
-            # 较长文本，检查是否包含闲聊语气词（说明不是保存内容）
-            chat_words = ["呗", "呀", "呢", "吧", "哈哈", "嘿嘿", "我怕", "我想", "我觉得", "不知道"]
-            if any(w in after for w in chat_words):
-                return "chat"
-            # 大概率有实质内容
-            return "save"
+    # 问候/闲聊优先（短文本 + 问候词 → 一定是 chat）
+    greeting_keywords = ("你好", "嗨", "hi", "hello", "在吗", "在不在", "早上好",
+                      "晚上好", "中午好", "晚安", "再见", "拜拜", "感谢",
+                      "谢谢", "辛苦了", "加油", "嘿", "哈喽", "干嘛", "干啥")
+    if len(stripped) <= 10 and any(k in stripped.lower() for k in greeting_keywords):
+        return "chat"
 
-    # "XX是YY" 模式（直接陈述信息）
-    info_patterns = [
-        ("密码是", 4), ("手机号是", 4), ("电话是", 4),
-        ("卡号是", 4), ("账号是", 4), ("地址是", 4),
-        ("邮箱是", 4), ("生日是", 4),
-    ]
-    for pattern, min_len in info_patterns:
-        if pattern in stripped:
-            idx = stripped.index(pattern) + len(pattern)
-            after = stripped[idx:].strip()
-            if after and (len(after) >= min_len or any(c.isdigit() for c in after)):
-                return "save"
+    # 问句 → chat（让大模型联网搜索）
+    question_marks = ("？", "?", "嘛", "吗", "呀", "啊")
+    if any(stripped.endswith(m) for m in question_marks):
+        return "chat"
+
+    # ===== 保存意图 =====
+    save_keywords = (
+        "帮我记", "记一下", "记住", "记录一下", "保存一下",
+        "帮我存", "存一下", "提醒我", "别忘了", "备忘",
+        "把这个记下来", "收藏", "记下来", "要记住", "写下来"
+    )
+    if any(k in stripped for k in save_keywords):
+        return "save"
 
     # ===== 搜索意图 =====
-    # 明确的搜索动词
-    search_verbs = [
-        "帮我找", "帮我查", "帮我搜",
-        "查一下", "搜一下", "找一下",
-        "查我的", "找我的", "搜我的", "看我的", "看看我的",
-        "查询", "查找", "搜索",
-    ]
-    for verb in search_verbs:
-        if verb in stripped:
-            return "search"
+    search_keywords = (
+        "帮我找", "帮我查", "查一下", "搜一下", "找一下",
+        "查找", "找到", "搜索", "记得", "我记过",
+        "之前记", "以前记", "我存过", "我的记忆", "记忆库",
+        "保存过", "记录过", "查询", "检索"
+    )
+    if any(k in stripped for k in search_keywords):
+        return "search"
 
-    # 问记忆内容的问题
-    memory_queries = [
-        "我记过什么", "我存过什么", "我保存过什么", "我记录过什么",
-        "我记了什么", "我存了什么", "有什么记忆", "记了哪些",
-        "有哪些记忆", "记忆库里有什么",
-    ]
-    for phrase in memory_queries:
-        if phrase in stripped:
-            return "search"
-
-    # 问具体记忆内容（疑问句 + 记忆关键词）
-    memory_words = ["密码", "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "身份证"]
-    has_question = "?" in stripped or "？" in stripped or "多少" in stripped or "什么" in stripped
-    if has_question:
-        for word in memory_words:
-            if word in stripped:
-                return "search"
-        # "我记过/存过"类问题
-        if any(k in stripped for k in ["记过", "存过", "保存过", "记录过"]):
-            return "search"
+    memory_question_keywords = (
+        "我记了什么", "记得什么", "存了什么", "保存了什么",
+        "记忆里有", "记忆库有", "密码", "号码", "电话", "生日",
+        "之前记的", "以前记的", "我记录过"
+    )
+    if any(k in stripped for k in memory_question_keywords):
+        return "search"
 
     return "chat"
 
@@ -561,6 +524,7 @@ def chat():
     conn = init_vault()
     vault_root = get_vault_root()
     intent = determine_intent(user_text)
+    print(f"[意图判断] text='{user_text[:30]}' → intent={intent}", file=sys.stderr, flush=True)
 
     # ===== 保存意图 =====
     if intent == "save":
