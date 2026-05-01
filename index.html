@@ -2120,6 +2120,7 @@
                     audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
                 }
 
+                console.log(`[语音] 录音数据: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.wav');
 
@@ -2136,7 +2137,17 @@
                 document.getElementById('audio-indicator').style.display = 'none';
 
                 if (data.error) {
-                    addBubble('assistant', data.error);
+                    console.error('[voice_dialogue] 错误:', data.error);
+                    addBubble('assistant', '出了点问题，再说一次吧~');
+                    resetToListening();
+                    return;
+                }
+
+                // ASR 未识别到文字（retry=true），显示提示后继续监听
+                if (data.retry) {
+                    if (data.response_text) {
+                        addBubble('assistant', data.response_text);
+                    }
                     resetToListening();
                     return;
                 }

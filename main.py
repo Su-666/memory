@@ -848,6 +848,7 @@ def recognize_with_baidu(wav_bytes: bytes) -> str:
 
         # 保存为临时WAV文件供百度API使用
         import tempfile
+        print(f"[ASR] 音频大小: {len(wav_bytes)} bytes", file=sys.stderr, flush=True)
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
             tmp.write(wav_bytes)
             tmp_path = tmp.name
@@ -861,11 +862,14 @@ def recognize_with_baidu(wav_bytes: bytes) -> str:
             import os as os_module
             os_module.unlink(tmp_path)
 
+        print(f"[ASR] 识别结果: {result}", file=sys.stderr, flush=True)
         if 'result' in result and result['result']:
             return result['result'][0].strip()
         elif 'err_msg' in result:
-            raise RuntimeError(f"百度语音识别失败: {result.get('err_msg', '未知错误')}")
+            print(f"[ASR] 百度返回错误: {result}", file=sys.stderr, flush=True)
+            return ""
         else:
+            print(f"[ASR] 无识别结果, 音频大小: {len(wav_bytes)} bytes", file=sys.stderr, flush=True)
             return ""
     except Exception as e:
         raise RuntimeError(f"语音识别失败: {e}")
@@ -917,12 +921,19 @@ def voice_dialogue():
     audio_file = request.files['audio']
     try:
         audio_data = audio_file.read()
+        print(f"[voice_dialogue] 收到音频: {len(audio_data)} bytes", file=sys.stderr, flush=True)
         if len(audio_data) < 1000:
             return jsonify({'error': '音频数据太短'}), 400
 
         user_text = recognize_with_baidu(audio_data)
         if not user_text:
-            return jsonify({'error': '未能识别到文字，请重试'}), 400
+            # ASR 未识别到文字，返回友好响应而非错误，让前端继续监听
+            return jsonify({
+                'user_text': '',
+                'response_text': '没听清呢，再说一次呗~',
+                'audio': None,
+                'retry': True,
+            })
 
         conn = init_vault()
         vault_root = get_vault_root()
@@ -930,24 +941,22 @@ def voice_dialogue():
         response_text = result['text']
 
         # 生成语音回复
+        resp = {
+            'user_text': user_text,
+            'response_text': response_text,
+            'saved': result.get('saved', False),
+        }
+        if result.get('results'):
+            resp['results'] = result['results']
+
         try:
             audio_bytes = synthesize_with_qwen(response_text[:300])
-            audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-            resp = {
-                'user_text': user_text,
-                'response_text': response_text,
-                'audio': audio_b64,
-                'saved': result.get('saved', False),
-            }
-            if result.get('results'):
-                resp['results'] = result['results']
-            return jsonify(resp)
+            resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
         except Exception as e:
-            return jsonify({
-                'user_text': user_text,
-                'response_text': response_text,
-                'error': f'语音合成失败: {str(e)}'
-            }), 500
+            print(f"[voice_dialogue] TTS 失败: {e}", file=sys.stderr, flush=True)
+            resp['audio'] = None  # TTS 失败不阻塞，前端会用文字显示
+
+        return jsonify(resp)
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
