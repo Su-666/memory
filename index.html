@@ -1269,7 +1269,7 @@
 
             <div class="voice-mode-bar" id="voice-mode-bar">
                 <div class="pulse-dot"></div>
-                <span>语音对话模式 · 自动朗读 · 点击🎤关闭</span>
+                <span>语音对话模式 · 说完自动识别 · 点击🎤关闭</span>
             </div>
             <div class="input-area" id="drop-area">
                 <textarea class="command-input" id="command-input" placeholder="跟我说说~（回车发送）" onkeypress="handleKeyPress(event)" rows="1" style="resize: none; overflow: hidden;"></textarea>
@@ -1337,7 +1337,6 @@
     <script>
         let chatHistory = [];
         let isRecording = false;
-        let voiceReplyEnabled = false;
         let mediaRecorder = null;
         let audioChunks = [];
         let pendingSaveText = null;
@@ -1515,7 +1514,6 @@
                             continueVoiceLoop();
                         }
                     }
-                    voiceReplyEnabled = false;
                 }
 
             } catch (e) {
@@ -1529,7 +1527,10 @@
 
             hideTypingIndicator();
             setLoading(false);
-            setStatus('准备就绪');
+            // 语音模式下不覆盖状态（speakText 会自行设置状态）
+            if (!voiceVadActive) {
+                setStatus('准备就绪');
+            }
         }
 
         function showTypingIndicator() {
@@ -1836,9 +1837,10 @@
         let voiceVadActive = false;     // VAD循环是否运行中
         let voiceVadTimeout = null;     // 静音检测定时器
         let voiceEnergyBuffer = [];     // 音频能量缓冲区
-        const VAD_THRESHOLD = 0.02;     // 语音检测阈值
-        const VAD_SILENCE_MS = 1000;    // 静音超过此时间停止录音
-        const VAD_MIN_RECORD_MS = 800;  // 最少录音时间
+        const VAD_THRESHOLD = 0.015;    // 语音检测阈值（降低以更好检测静音）
+        const VAD_SILENCE_MS = 1500;    // 静音超过此时间停止录音
+        const VAD_MIN_RECORD_MS = 600;  // 最少录音时间
+        const VAD_MAX_RECORD_MS = 30000; // 最长录音时间（安全阀）
         let voiceRecordStartTime = 0;   // 录音开始时间
 
         // 点击语音按钮
@@ -1954,7 +1956,17 @@
                     requestAnimationFrame(vadLoop);
                 }
             } else if (voiceState === 'recording') {
-                // 录音中，检查是否静音
+                // 录音中，检查是否静音或超时
+                const recordDuration = Date.now() - voiceRecordStartTime;
+
+                // 安全阀：最长录音时间
+                if (recordDuration > VAD_MAX_RECORD_MS) {
+                    console.log('[VAD] 录音超时，自动停止');
+                    if (voiceVadTimeout) { clearTimeout(voiceVadTimeout); voiceVadTimeout = null; }
+                    stopRecordingFromVAD();
+                    return;
+                }
+
                 const hasVoice = checkVoiceActivity();
 
                 if (hasVoice) {
@@ -1965,15 +1977,12 @@
                     }
                 } else if (!voiceVadTimeout) {
                     // 开始静音检测
-                    const recordDuration = Date.now() - voiceRecordStartTime;
-                    const silenceDelay = Math.max(300, VAD_SILENCE_MS - (recordDuration < 2000 ? 400 : 0));
-
                     voiceVadTimeout = setTimeout(() => {
+                        voiceVadTimeout = null;
                         if (voiceState === 'recording') {
                             stopRecordingFromVAD();
                         }
-                        voiceVadTimeout = null;
-                    }, silenceDelay);
+                    }, VAD_SILENCE_MS);
                 }
 
                 requestAnimationFrame(vadLoop);
@@ -2062,7 +2071,10 @@
 
             const recordDuration = Date.now() - voiceRecordStartTime;
             if (recordDuration < VAD_MIN_RECORD_MS) {
-                // 录音时间太短，继续录音
+                // 录音时间太短，延迟后重试
+                setTimeout(() => {
+                    if (voiceState === 'recording') stopRecordingFromVAD();
+                }, VAD_MIN_RECORD_MS - recordDuration + 50);
                 return;
             }
 
@@ -2112,13 +2124,7 @@
                 if (data.error) {
                     document.getElementById('audio-indicator').style.display = 'none';
                     addBubble('assistant', '没听清呢，再说一次呗~');
-                    if (voiceVadActive) {
-                        voiceState = 'listening';
-                        voiceEnergyBuffer = [];
-                        updateVoiceButton();
-                        setStatus('👂 语音模式 · 请说话...');
-                        requestAnimationFrame(vadLoop);
-                    }
+                    resetToListening();
                     return;
                 }
 
@@ -2130,37 +2136,39 @@
 
                     document.getElementById('command-input').value = text;
                     await sendMessage();
-                    // sendMessage 会触发 speakText（如果 voiceVadActive），
-                    // speakText 的 onended 会调用 continueVoiceLoop 回到 listening
+                    // sendMessage 内部会调用 speakText → onended → continueVoiceLoop
+                    // 如果 sendMessage 后 voiceState 仍为 speaking 但 speakText 未被调用（无回复文本），
+                    // continueVoiceLoop 会在 sendMessage 内部被调用
                 } else {
                     document.getElementById('audio-indicator').style.display = 'none';
                     addBubble('assistant', '嗯？没听清，再说一次呗~');
-                    if (voiceVadActive) {
-                        voiceState = 'listening';
-                        voiceEnergyBuffer = [];
-                        updateVoiceButton();
-                        setStatus('👂 语音模式 · 请说话...');
-                        requestAnimationFrame(vadLoop);
-                    }
+                    resetToListening();
                 }
 
             } catch (error) {
                 console.error('语音处理失败:', error);
                 document.getElementById('audio-indicator').style.display = 'none';
                 addBubble('assistant', '处理出了点问题，再试一次？');
-                if (voiceVadActive) {
-                    voiceState = 'listening';
-                    voiceEnergyBuffer = [];
-                    updateVoiceButton();
-                    setStatus('👂 语音模式 · 请说话...');
-                    requestAnimationFrame(vadLoop);
-                }
+                resetToListening();
+            }
+        }
+
+        // 重置到监听状态的辅助函数
+        function resetToListening() {
+            if (voiceVadActive) {
+                voiceState = 'listening';
+                voiceEnergyBuffer = [];
+                updateVoiceButton();
+                setStatus('👂 语音模式 · 请说话...');
+                requestAnimationFrame(vadLoop);
             }
         }
 
         // 朗读完成后继续监听
         function continueVoiceLoop() {
-            if (voiceVadActive && voiceState === 'speaking') {
+            if (!voiceVadActive) return;
+            // 允许从 speaking 或 processing 状态恢复到 listening
+            if (voiceState === 'speaking' || voiceState === 'processing') {
                 voiceState = 'listening';
                 voiceEnergyBuffer = []; // 清空能量缓冲区
                 updateVoiceButton();
@@ -2256,7 +2264,7 @@
                 voiceBtn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
                 voiceBtn.style.color = '#065f46';
                 voiceModeBar.classList.add('active');
-                barSpan.textContent = '语音模式 · 请说话 · 点击🎤退出';
+                barSpan.textContent = '语音模式 · 说完自动识别 · 点击🎤退出';
             } else {
                 voiceBtn.textContent = '🎤';
                 voiceBtn.title = '点击开始语音对话';
@@ -2578,6 +2586,8 @@
                 }
                 cleanText = cleanText.slice(0, 280);
 
+                setStatus('🔊 正在合成语音...');
+
                 const response = await fetch('/api/speech_synthesize', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -2587,6 +2597,7 @@
                 const data = await response.json();
                 if (data.error) {
                     console.warn('语音合成失败:', data.error);
+                    setStatus('语音合成失败，继续监听...');
                     continueVoiceLoop();
                     return;
                 }
@@ -2605,21 +2616,45 @@
                 audio._blobUrl = audioUrl;
                 window._currentAudio = audio;
 
+                // 安全阀：朗读超时后自动继续（防止卡住）
+                const speakTimeout = setTimeout(() => {
+                    console.warn('[TTS] 朗读超时，自动继续');
+                    if (window._currentAudio === audio) {
+                        audio.pause();
+                        window._currentAudio = null;
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    continueVoiceLoop();
+                }, (cleanText.length * 200) + 15000); // 每字约200ms + 15秒缓冲
+
                 // 启动打断检测
                 if (voiceVadActive) {
                     startBargeInDetection();
                 }
 
+                setStatus('🔊 正在朗读...');
+
                 audio.play().catch(err => {
                     console.warn('音频播放失败:', err);
+                    clearTimeout(speakTimeout);
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
                     continueVoiceLoop();
                 });
 
                 audio.onended = () => {
+                    clearTimeout(speakTimeout);
                     URL.revokeObjectURL(audioUrl);
                     if (window._currentAudio === audio) {
                         window._currentAudio = null;
                     }
+                    continueVoiceLoop();
+                };
+
+                audio.onerror = () => {
+                    clearTimeout(speakTimeout);
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
                     continueVoiceLoop();
                 };
 
