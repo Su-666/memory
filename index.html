@@ -1836,9 +1836,10 @@
         let voiceVadTimeout = null;     // 静音检测定时器
         let voiceEnergyBuffer = [];     // 音频能量缓冲区
         let voiceFreqDataArray = null;  // 预分配的频率数据缓冲区（避免每帧分配）
-        const VAD_THRESHOLD = 0.015;    // 语音检测阈值（降低以更好检测静音）
-        const VAD_SILENCE_MS = 1500;    // 静音超过此时间停止录音
-        const VAD_MIN_RECORD_MS = 600;  // 最少录音时间
+        const VAD_THRESHOLD = 0.03;      // 语音开始阈值（高于此值认为有语音）
+        const VAD_SILENCE_THRESHOLD = 0.02; // 静音阈值（低于此值认为是静音）
+        const VAD_SILENCE_MS = 1500;     // 静音超过此时间停止录音
+        const VAD_MIN_RECORD_MS = 600;   // 最少录音时间
         const VAD_MAX_RECORD_MS = 30000; // 最长录音时间（安全阀）
         let voiceRecordStartTime = 0;   // 录音开始时间
 
@@ -1948,14 +1949,12 @@
                 const hasVoice = checkVoiceActivity();
 
                 if (hasVoice) {
-                    // 检测到语音，开始录音
+                    console.log('[VAD] 检测到语音，开始录音');
                     startRecordingFromVAD();
                 } else {
-                    // 继续监听
                     requestAnimationFrame(vadLoop);
                 }
             } else if (voiceState === 'recording') {
-                // 录音中，检查是否静音或超时
                 const recordDuration = Date.now() - voiceRecordStartTime;
 
                 // 安全阀：最长录音时间
@@ -1966,16 +1965,18 @@
                     return;
                 }
 
-                const hasVoice = checkVoiceActivity();
+                // 录音中使用较低的静音阈值，更容易检测到静音
+                const currentEnergy = getCurrentEnergy();
+                const isSilent = currentEnergy < VAD_SILENCE_THRESHOLD;
 
-                if (hasVoice) {
+                if (!isSilent) {
                     // 有声音，重置静音定时器
                     if (voiceVadTimeout) {
                         clearTimeout(voiceVadTimeout);
                         voiceVadTimeout = null;
                     }
-                } else if (!voiceVadTimeout) {
-                    // 开始静音检测
+                } else if (!voiceVadTimeout && recordDuration > VAD_MIN_RECORD_MS) {
+                    // 静音开始且已超过最短录音时间，启动定时器
                     voiceVadTimeout = setTimeout(() => {
                         voiceVadTimeout = null;
                         if (voiceState === 'recording') {
@@ -1989,9 +1990,9 @@
             // processing / speaking 状态不跑 VAD 循环
         }
 
-        // 检查是否有语音活动
-        function checkVoiceActivity() {
-            if (!voiceAnalyser) return false;
+        // 获取当前音频能量（不使用滑动平均）
+        function getCurrentEnergy() {
+            if (!voiceAnalyser) return 0;
 
             const bufferLength = voiceAnalyser.frequencyBinCount;
             if (!voiceFreqDataArray || voiceFreqDataArray.length !== bufferLength) {
@@ -1999,13 +2000,19 @@
             }
             voiceAnalyser.getByteFrequencyData(voiceFreqDataArray);
 
-            // 计算音频能量（关注人声频率 85-4000Hz）
             let sum = 0;
             const voiceEnd = Math.min(bufferLength, Math.floor(bufferLength * 0.5));
             for (let i = 0; i < voiceEnd; i++) {
                 sum += voiceFreqDataArray[i] * voiceFreqDataArray[i];
             }
-            const rms = Math.sqrt(sum / voiceEnd) / 128.0;
+            return Math.sqrt(sum / voiceEnd) / 128.0;
+        }
+
+        // 检查是否有语音活动（用于 listening 状态，使用滑动平均）
+        function checkVoiceActivity() {
+            if (!voiceAnalyser) return false;
+
+            const rms = getCurrentEnergy();
 
             // 滑动平均
             voiceEnergyBuffer.push(rms);
@@ -2049,6 +2056,7 @@
                 voiceState = 'recording';
                 voiceRecordStartTime = Date.now();
                 isRecording = true;
+                voiceEnergyBuffer = []; // 清空能量缓冲区，重新检测
 
                 updateVoiceButton();
                 setStatus('🎙️ 正在听你说...');
