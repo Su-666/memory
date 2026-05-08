@@ -2,35 +2,29 @@
 暖暖记忆助手 - 桌面客户端 v6.0
 纯在线模式，通过 API 与服务端通信
 """
+import base64
 import html
 import io
 import os
 from pathlib import Path
+import ssl
+import subprocess
 import sys
 import threading
 import time
 from typing import Any, TYPE_CHECKING
+import uuid
 import wave
 
+# PyInstaller 打包后 SSL 证书路径修复
+try:
+    import certifi
+    os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+except ImportError:
+    pass
+
 APP_VERSION = "6.0"
-
-
-def get_documents_path() -> Path:
-    if sys.platform == "win32":
-        try:
-            import winreg
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")
-            documents = winreg.QueryValueEx(key, "Personal")[0]
-            winreg.CloseKey(key)
-            return Path(documents)
-        except Exception:
-            pass
-    return Path.home() / "Documents"
-
-
-def get_default_vault_root() -> Path:
-    return get_documents_path() / "记忆助手" / "memory_vault"
-
 
 # 设置 PortAudio DLL 搜索路径（用于打包后）
 if hasattr(sys, '_MEIPASS'):
@@ -40,8 +34,25 @@ if hasattr(sys, '_MEIPASS'):
     if os.path.exists(_dll_dir):
         os.environ['PATH'] = _dll_dir + os.pathsep + os.environ.get('PATH', '')
     os.environ['PATH'] = _internal_dir + os.pathsep + os.environ.get('PATH', '')
+    # 确保打包后的模块可以被导入
+    if _base not in sys.path:
+        sys.path.insert(0, _base)
 
-load_dotenv_file = None  # forward declaration
+# 启动日志（用于调试）
+_LOG_DIR = Path(os.environ.get("APPDATA", ".")) / "MemoryAssistant"
+_LOG_DIR.mkdir(exist_ok=True)
+_LOG_FILE = _LOG_DIR / "startup.log"
+with open(_LOG_FILE, "w", encoding="utf-8") as _f:
+    _f.write(f"Python: {sys.version}\n")
+    _f.write(f"Executable: {sys.executable}\n")
+    _f.write(f"MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}\n")
+    _f.write(f"sys.path[0]: {sys.path[0] if sys.path else 'N/A'}\n")
+    try:
+        import certifi
+        _f.write(f"certifi: {certifi.where()}\n")
+        _f.write(f"SSL_CERT_FILE env: {os.environ.get('SSL_CERT_FILE', 'N/A')}\n")
+    except ImportError:
+        _f.write("certifi: NOT INSTALLED\n")
 
 def _load_dotenv(dotenv_path: Path) -> None:
     DEFAULT_CONFIG = """
@@ -83,16 +94,14 @@ except ImportError:
 
 try:
     from PyQt5.QtCore import (
-        Qt, QThread, QSettings, pyqtSignal, QTimer, QObject,
-        QPropertyAnimation, QEasingCurve, QPoint,
+        Qt, QThread, QSettings, pyqtSignal, QTimer, QObject, QUrl,
     )
-    from PyQt5.QtGui import QFont, QFontMetrics, QPixmap, QColor, QIcon, QDesktopServices
+    from PyQt5.QtGui import QFont, QFontMetrics, QPixmap, QDesktopServices, QTextOption
     from PyQt5.QtWidgets import (
         QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel,
-        QMainWindow, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
-        QTextBrowser, QTextEdit, QVBoxLayout, QWidget, QDialog, QGraphicsOpacityEffect,
+        QMainWindow, QMenu, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+        QTextBrowser, QTextEdit, QVBoxLayout, QWidget, QDialog,
     )
-    from PyQt5.QtCore import QUrl
 except ImportError as exc:
     py = sys.executable
     raise SystemExit(
@@ -106,7 +115,7 @@ try:
 except Exception:
     pass
 
-from app.api_client import MemoryApiClient, ApiError
+from app.api_client import MemoryApiClient
 
 if TYPE_CHECKING:
     import numpy as _np
@@ -163,7 +172,6 @@ def play_wav_bytes(wav_bytes: bytes, stop_flag: list | None = None) -> None:
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
             f.write(wav_bytes)
             temp_wav = f.name
-        import subprocess
         subprocess.run(['powershell', '-c', f'(New-Object System.Media.SoundPlayer("{temp_wav}")).PlaySync()'], check=True)
     except Exception as e:
         print(f"无法播放音频: {e}")
@@ -184,8 +192,7 @@ class VoiceWorker(QObject):
     finished = pyqtSignal()
     dialogue_stopped = pyqtSignal()
     user_text_ready = pyqtSignal(str)
-    voice_text_ready = pyqtSignal(str, bool)
-    voice_speak = pyqtSignal(str)
+    voice_text_ready = pyqtSignal(str)
 
     def __init__(self, api_client: MemoryApiClient, dialogue_mode: bool = False) -> None:
         super().__init__()
@@ -254,7 +261,7 @@ class VoiceWorker(QObject):
             text = result.get("text", "")
             if text:
                 self.user_text_ready.emit(text)
-                self.voice_text_ready.emit(text, False)
+                self.voice_text_ready.emit(text)
                 self.status_changed.emit("语音识别完成。", False)
             else:
                 self.status_changed.emit("没有识别到内容。", True)
@@ -339,8 +346,7 @@ class VoiceWorker(QObject):
                     self._speak_text_via_api("好的，对话结束。有什么需要再叫我。")
                     break
 
-                has_pending = False
-                self.voice_text_ready.emit(user_text, has_pending)
+                self.voice_text_ready.emit(user_text)
 
             except Exception as exc:
                 print(f"对话异常: {exc}")
@@ -363,7 +369,6 @@ class VoiceWorker(QObject):
             result = self._api.speech_synthesize(text)
             audio_b64 = result.get("audio", "")
             if audio_b64:
-                import base64
                 wav_bytes = base64.b64decode(audio_b64)
                 play_wav_bytes(wav_bytes, self._playback_stop_flag)
         except Exception as e:
@@ -386,11 +391,16 @@ class VoiceWorker(QObject):
 # ============ 统计面板对话框 ============
 
 class StatsDialog(QDialog):
+    _stats_result = pyqtSignal(dict)
+    _stats_error = pyqtSignal(str)
+
     def __init__(self, api_client: MemoryApiClient, parent=None):
         super().__init__(parent)
         self.setWindowTitle("记忆统计")
         self.setMinimumSize(380, 420)
         self._api = api_client
+        self._stats_result.connect(self._render_stats)
+        self._stats_error.connect(lambda e: self._show_error(str(e)))
         self._build_ui()
         self._load_stats()
 
@@ -426,9 +436,9 @@ class StatsDialog(QDialog):
         def _do():
             try:
                 stats = self._api.get_stats()
-                QTimer.singleShot(0, lambda: self._render_stats(stats))
+                self._stats_result.emit(stats)
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._show_error(str(e)))
+                self._stats_error.emit(str(e))
         threading.Thread(target=_do, daemon=True).start()
 
     def _render_stats(self, stats: dict):
@@ -533,23 +543,29 @@ class ImageZoomDialog(QDialog):
 # ============ 主窗口 ============
 
 class AgentWindow(QMainWindow):
+    # 跨线程 UI 更新信号
+    _health_result = pyqtSignal(bool)
+    _chat_result_signal = pyqtSignal(dict)
+    _chat_error_signal = pyqtSignal(str)
+    _upload_result_signal = pyqtSignal(dict)
+    _upload_error_signal = pyqtSignal(str)
+    _voice_result_signal = pyqtSignal(str, object, object)
+    _voice_error_signal = pyqtSignal(str)
+    _update_bar_signal = pyqtSignal(str, str)
+
     def __init__(self) -> None:
         super().__init__()
         init_sounddevice()
 
         self.voice_thread: QThread | None = None
         self.voice_worker: VoiceWorker | None = None
-        self._voice_reply_pending = False
         self._settings = QSettings("", "MemoryAssistant")
         self._pending_save_text: str | None = None
-        self._chat_plain_parts: list[str] = []
-        self._chat_html_parts: list[str] = []
         self._refit_debounce_timer: QTimer | None = None
         self._chat_history: list[dict] = []
         self._api: MemoryApiClient | None = None
         self._client_id: str = ""
         self._online: bool = False
-        self._cached_memories: list[dict] = []
         self._health_timer: QTimer | None = None
         self._version_timer: QTimer | None = None
         self._dark_mode: bool = False
@@ -951,7 +967,7 @@ class AgentWindow(QMainWindow):
         self, *, align_right: bool, title: str, html_body: str, plain_text: str,
         bg: str, border: str, title_color: str, text_color: str,
         show_title: bool = True, pad_x: int | None = None,
-        body_font_px: int | None = None, center_body: bool = False,
+        body_font_px: int | None = None,
     ) -> QWidget:
         pad_m = self._bubble_pad_x if pad_x is None else pad_x
         bfs = self._bubble_body_font_px if body_font_px is None else body_font_px
@@ -1034,7 +1050,7 @@ class AgentWindow(QMainWindow):
             f"font-size:{bfs}px; line-height:1.45; color:{text_color}; word-wrap:break-word; word-break:break-all;\">"
             f"{html_body}</div>"
         )
-        from PyQt5.QtGui import QTextOption
+
         opt = QTextOption(Qt.AlignLeft)
         opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         body.document().setDefaultTextOption(opt)
@@ -1168,7 +1184,6 @@ class AgentWindow(QMainWindow):
     def _open_file(self, file_path: str):
         p = Path(file_path)
         if p.exists():
-            import subprocess
             if sys.platform == "win32":
                 subprocess.Popen(f'explorer /select,"{p}"')
             else:
@@ -1182,45 +1197,22 @@ class AgentWindow(QMainWindow):
 
     def _append_user(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
-        self._chat_plain_parts.append(f"你：{text}")
-        self._chat_html_parts.append(f"<p><b>你</b><br/>{safe}</p>")
         w = self._make_bubble(
             align_right=True, title="", html_body=safe, plain_text=text,
             bg="#0f766e", border="#0d6560", title_color="#c9f1e6", text_color="#f8fffd",
             show_title=False, pad_x=self._bubble_user_pad_x,
-            body_font_px=self._bubble_user_body_font_px, center_body=True,
+            body_font_px=self._bubble_user_body_font_px,
         )
         self._add_chat_widget(w)
 
     def _append_assistant(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
-        self._chat_plain_parts.append(f"暖暖：{text}")
-        self._chat_html_parts.append(f"<p><b>暖暖</b><br/>{safe}</p>")
         w = self._make_bubble(
             align_right=False, title="暖暖", html_body=safe, plain_text=text,
             bg="#f5f5f5", border="#d8d8d8", title_color="#666666", text_color="#333333",
-            show_title=True, center_body=True,
+            show_title=True,
         )
         self._add_chat_widget(w)
-        if self._voice_reply_pending:
-            self._voice_reply_pending = False
-            self._speak_text_async(text)
-
-    def _speak_text_async(self, text: str) -> None:
-        speak_text = (text or "").strip()
-        if not speak_text or not self._api:
-            return
-        def _run():
-            try:
-                result = self._api.speech_synthesize(speak_text)
-                audio_b64 = result.get("audio", "")
-                if audio_b64:
-                    import base64
-                    wav_bytes = base64.b64decode(audio_b64)
-                    play_wav_bytes(wav_bytes)
-            except Exception as e:
-                print(f"语音播放失败: {e}")
-        threading.Thread(target=_run, daemon=True).start()
 
     def _append_cards(self, items: list[dict[str, Any]]) -> None:
         if not items:
@@ -1233,8 +1225,6 @@ class AgentWindow(QMainWindow):
                 plain_lines.append(f"- {t}（{tm}）")
             elif t:
                 plain_lines.append(f"- {t}")
-        if plain_lines:
-            self._chat_plain_parts.append("相关记忆：\n" + "\n".join(plain_lines))
 
         container = QWidget()
         container.setObjectName("relatedContainer")
@@ -1263,18 +1253,31 @@ class AgentWindow(QMainWindow):
     def _init_backend(self) -> None:
         self._client_id = self._settings.value("client/id", "", type=str) or ""
         if not self._client_id:
-            import uuid
             self._client_id = uuid.uuid4().hex[:16]
             self._settings.setValue("client/id", self._client_id)
 
-        server_url = self._settings.value("server/url", "", type=str) or "https://memory-n.ccwu.cc"
-        self._api = MemoryApiClient(base_url=server_url, client_id=self._client_id, timeout=30)
+        server_url = self._settings.value("server/url", "", type=str)
+        if not server_url or "localhost" in server_url:
+            server_url = "https://memory-n.ccwu.cc"
+        self._api = MemoryApiClient(base_url=server_url, client_id=self._client_id, timeout=60)
+        with open(_LOG_FILE, "a", encoding="utf-8") as _f:
+            _f.write(f"Server URL: {server_url}\n")
 
         # 加载暗色模式偏好
         self._dark_mode = self._settings.value("theme/mode", "light", type=str) == "dark"
         if self._dark_mode:
             self._theme_btn.setText("☀️")
             self._apply_style()
+
+        # 跨线程信号连接
+        self._health_result.connect(self._handle_health_result)
+        self._chat_result_signal.connect(self._process_chat_result)
+        self._chat_error_signal.connect(lambda e: self._append_assistant(f"请求失败：{e}"))
+        self._upload_result_signal.connect(self._process_upload_result)
+        self._upload_error_signal.connect(lambda e: self._append_assistant(f"上传失败：{e}"))
+        self._voice_result_signal.connect(self._process_voice_result)
+        self._voice_error_signal.connect(lambda e: self._append_assistant(f"语音请求失败：{e}"))
+        self._update_bar_signal.connect(self._show_update_bar)
 
         # 健康检查
         self._health_timer = QTimer(self)
@@ -1287,23 +1290,27 @@ class AgentWindow(QMainWindow):
             return
         def _do():
             try:
-                result = self._api.health()
-                ok = result.get("status") == "ok"
-                was_online = self._online
-                self._online = ok
-                QTimer.singleShot(0, lambda: self._update_connection_status(ok))
-                if ok and not was_online:
-                    QTimer.singleShot(0, lambda: self._set_status("已恢复连接"))
-                    QTimer.singleShot(0, lambda: self._offline_bar.setVisible(False))
-                elif not ok:
-                    QTimer.singleShot(0, lambda: self._offline_bar.setVisible(True))
-            except Exception:
-                was_online = self._online
-                self._online = False
-                QTimer.singleShot(0, lambda: self._update_connection_status(False))
-                if was_online:
-                    QTimer.singleShot(0, lambda: self._offline_bar.setVisible(True))
+                import urllib.request, json as _json
+                url = f"{self._api.base_url}/api/health"
+                req = urllib.request.Request(url)
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = _json.loads(resp.read().decode("utf-8"))
+                    ok = data.get("status") == "ok"
+            except Exception as e:
+                print(f"[健康检查] {self._api.base_url} -> {type(e).__name__}: {e}")
+                ok = False
+            self._health_result.emit(ok)
         threading.Thread(target=_do, daemon=True).start()
+
+    def _handle_health_result(self, ok: bool) -> None:
+        was_online = self._online
+        self._online = ok
+        self._update_connection_status(ok)
+        if ok and not was_online:
+            self._set_status("已恢复连接")
+            self._offline_bar.setVisible(False)
+        elif not ok:
+            self._offline_bar.setVisible(True)
 
     def _update_connection_status(self, online: bool) -> None:
         if online:
@@ -1329,7 +1336,7 @@ class AgentWindow(QMainWindow):
                 remote_ver = info.get("version", "")
                 download_url = info.get("download_url", "")
                 if remote_ver and remote_ver != APP_VERSION and download_url:
-                    QTimer.singleShot(0, lambda: self._show_update_bar(remote_ver, download_url))
+                    self._update_bar_signal.emit(remote_ver, download_url)
             except Exception:
                 pass
         threading.Thread(target=_do, daemon=True).start()
@@ -1373,10 +1380,9 @@ class AgentWindow(QMainWindow):
         def _do():
             try:
                 result = self._api.chat(text)
-                QTimer.singleShot(0, lambda: self._process_chat_result(result))
+                self._chat_result_signal.emit(result)
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._append_assistant(f"请求失败：{e}"))
-                QTimer.singleShot(0, lambda: self._set_status("准备就绪", True))
+                self._chat_error_signal.emit(str(e))
 
         self._set_status("正在处理…")
         threading.Thread(target=_do, daemon=True).start()
@@ -1389,8 +1395,6 @@ class AgentWindow(QMainWindow):
         results = result.get("results")
         if results:
             self._append_cards(results)
-            # 缓存最近记忆
-            self._cached_memories = results[:30]
         pending = result.get("pending_save")
         if pending:
             self._pending_save_text = pending
@@ -1427,10 +1431,9 @@ class AgentWindow(QMainWindow):
         def _do():
             try:
                 result = self._api.upload(paths, caption)
-                QTimer.singleShot(0, lambda: self._process_upload_result(result))
+                self._upload_result_signal.emit(result)
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._append_assistant(f"上传失败：{e}"))
-                QTimer.singleShot(0, lambda: self._set_status("准备就绪", True))
+                self._upload_error_signal.emit(str(e))
 
         self._set_status("正在上传文件…")
         threading.Thread(target=_do, daemon=True).start()
@@ -1446,7 +1449,6 @@ class AgentWindow(QMainWindow):
     def _choose_files(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "选择文件", "", "所有文件 (*)")
         if paths:
-            from ui.widgets.command_input import DropSubmit
             self._handle_chat_submit_drop(DropSubmit(paths=paths, caption=""))
 
     # ---- 语音 ----
@@ -1471,7 +1473,6 @@ class AgentWindow(QMainWindow):
         self.voice_worker.listening_changed.connect(self._update_voice_dialogue_state)
         self.voice_worker.user_text_ready.connect(self._append_user)
         self.voice_worker.voice_text_ready.connect(self._handle_voice_text)
-        self.voice_worker.voice_speak.connect(lambda t: self.voice_worker.speak_text(t) if self.voice_worker else None)
         self.voice_worker.dialogue_stopped.connect(self._handle_dialogue_stopped)
         self.voice_worker.finished.connect(self.voice_thread.quit)
         self.voice_thread.finished.connect(self.voice_worker.deleteLater)
@@ -1479,11 +1480,10 @@ class AgentWindow(QMainWindow):
         self.voice_thread.finished.connect(self._cleanup_voice_worker)
         self.voice_thread.start()
 
-    def _handle_voice_text(self, text: str, has_pending: bool) -> None:
-        QTimer.singleShot(0, lambda: self._do_voice_text(text, has_pending))
+    def _handle_voice_text(self, text: str) -> None:
+        self._do_voice_text(text)
 
-    def _do_voice_text(self, text: str, has_pending: bool) -> None:
-        _ = has_pending
+    def _do_voice_text(self, text: str) -> None:
         if self._api is None or not self._online:
             if self.voice_worker:
                 self.voice_worker.speak_text("服务不可用，请稍后再试。")
@@ -1512,9 +1512,9 @@ class AgentWindow(QMainWindow):
                 response = result.get("text", "")
                 results = result.get("results")
                 pending = result.get("pending_save")
-                QTimer.singleShot(0, lambda: self._process_voice_result(response, results, pending))
+                self._voice_result_signal.emit(response, results, pending)
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._append_assistant(f"请求失败：{e}"))
+                self._voice_error_signal.emit(str(e))
 
         threading.Thread(target=_do, daemon=True).start()
 
@@ -1568,7 +1568,6 @@ class AgentWindow(QMainWindow):
 
     # ---- 右键菜单 ----
     def _show_chat_context_menu(self, position) -> None:
-        from PyQt5.QtWidgets import QMenu
         menu = QMenu(self)
         clear_action = menu.addAction("清空对话")
         clear_action.triggered.connect(self._clear_query)
@@ -1576,29 +1575,12 @@ class AgentWindow(QMainWindow):
 
     # ---- 其他 ----
     def _load_defaults(self) -> None:
-        vault = self._settings.value("vault/root", "", type=str) or ""
-        self._vault_root = Path(vault) if vault else get_default_vault_root()
         last_query = self._settings.value("query/last", "", type=str) or ""
         if last_query:
             self.command_input.set_text(last_query)
 
-    def _get_vault_root(self) -> Path:
-        root = getattr(self, "_vault_root", None)
-        if root is None:
-            root = get_default_vault_root()
-            self._vault_root = root
-        return Path(root)
-
     def _set_status(self, text: str, is_error: bool = False) -> None:
         self.statusBar().showMessage(text, 8000 if not is_error else 15000)
-
-    def _set_busy(self, busy: bool) -> None:
-        self.send_btn.setEnabled(not busy)
-        self._progress.setVisible(busy)
-
-    def _stop_all(self) -> None:
-        if hasattr(self, "voice_worker") and self.voice_worker is not None:
-            self.voice_worker.stop()
 
     def _clear_query(self) -> None:
         self.command_input.clear()
@@ -1610,8 +1592,6 @@ class AgentWindow(QMainWindow):
             if w is not None:
                 w.setParent(None)
                 w.deleteLater()
-        self._chat_plain_parts.clear()
-        self._chat_html_parts.clear()
         self._append_assistant("内容已清空。")
         self._set_status("内容已清空。")
         self._settings.setValue("query/last", "")

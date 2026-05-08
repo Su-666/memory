@@ -19,6 +19,14 @@ def main():
         shutil.rmtree("build")
 
     add_data_args = ["--add-data=app;app", "--add-data=ui;ui"]
+
+    # 打包 SSL 证书
+    try:
+        import certifi
+        cert_path = certifi.where()
+        add_data_args.append(f"--add-data={cert_path};certifi")
+    except ImportError:
+        pass
     if os.path.isdir("data"):
         add_data_args.append("--add-data=data;data")
 
@@ -50,7 +58,10 @@ def main():
     print("请将 exe 文件和 data 文件夹一起发送")
     print("=" * 50)
 
-    input("\n按回车键退出...")
+    try:
+        input("\n按回车键退出...")
+    except EOFError:
+        pass
 
 if __name__ == "__main__":
     main()

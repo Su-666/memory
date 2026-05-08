@@ -19,8 +19,8 @@
 
 | 模式 | 入口文件 | 说明 |
 |------|----------|------|
-| 桌面 GUI | `pyqt_local_agent.py` | PyQt5 桌面应用，必须连接服务器后端 |
-| Web 服务 | `server.py` 或 `web/main.py` | Flask 后端 + 单页 HTML 前端，可部署到 Railway |
+| 桌面 GUI | `pyqt_local_agent.py` | PyQt5 桌面应用，连接 Railway 服务器 |
+| Web 服务 | `web/main.py` | Flask 后端 + 单页 HTML 前端，部署到 Railway |
 
 ## 技术栈
 
@@ -38,14 +38,12 @@
 
 ```
 记忆助手/
-├── pyqt_local_agent.py      # 桌面端主程序（纯在线模式，必须连接服务器）
-├── server.py                 # 统一服务端入口
+├── pyqt_local_agent.py      # 桌面端主程序（纯在线模式，连接 Railway 服务器）
 ├── build_exe.py              # PyInstaller 打包脚本
 ├── requirements.txt          # Python 依赖
 ├── .env                      # API 密钥（不提交到 Git）
 ├── Procfile                  # Railway 部署入口
 ├── railway.toml              # Railway 部署配置
-├── runtime.txt               # Python 版本
 │
 ├── app/                      # 核心业务逻辑（桌面端和 Web 端共用）
 │   ├── db.py                 #   数据库初始化（memories 表、FTS5、触发器）
@@ -67,9 +65,7 @@
     ├── main.py               #   Flask 后端（全部 API 路由）
     ├── index.html            #   单页前端（聊天、搜索、暗色模式）
     ├── import_setup.py       #   路径修复（Railway 部署用）
-    ├── requirements.txt      #   Web 端依赖
-    ├── Procfile              #   Railway 入口
-    └── railway.toml          #   Railway 配置
+    └── requirements.txt      #   Web 端依赖
 ```
 
 ## 快速开始
@@ -110,13 +106,9 @@ BAIDU_SECRET_KEY=your_baidu_secret_key
 
 ### 3. 启动运行
 
-**Web 模式：**
+**Web 模式（本地开发）：**
 
 ```bash
-# 方式一：通过统一入口
-python server.py --host 127.0.0.1 --port 5000
-
-# 方式二：直接启动 Flask
 cd web
 python main.py
 ```
@@ -126,11 +118,10 @@ python main.py
 **桌面 GUI 模式：**
 
 ```bash
-# 先启动 Web 服务端，再启动桌面端
 python pyqt_local_agent.py
 ```
 
-桌面端必须连接服务器后端才能工作，断线时会自动重连并显示只读缓存。
+桌面端连接 Railway 服务器（`https://memory-n.ccwu.cc`），也可本地启动 Web 服务后连接 `http://localhost:5000`。
 
 ## 使用方式
 
@@ -248,7 +239,6 @@ Web 模式提供以下 REST API：
 | GET | `/api/vault/path` | 获取保险库路径 |
 | POST | `/api/clear` | 清空对话历史 |
 | GET | `/api/file/image` | 图片预览 |
-| POST | `/api/file/open` | 打开文件 |
 
 ## 架构设计
 

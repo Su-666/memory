@@ -19,6 +19,7 @@ web/.env
 # Runtime data
 data/
 web/data/
+memory_vault/
 *.db
 
 # PyInstaller

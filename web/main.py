@@ -5,6 +5,7 @@
 import os
 import sys
 import base64
+import json
 import threading
 import re
 import time
@@ -20,7 +21,6 @@ from flask_cors import CORS
 
 # 版本信息
 APP_VERSION = "6.0"
-DOWNLOAD_URL = ""  # 发布后填入下载地址
 CHANGELOG = "全新界面设计，在线模式，暗色主题支持"
 
 # Railway 使用环境变量 PORT
@@ -463,14 +463,6 @@ def upload_file():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/file/open', methods=['POST'])
-def open_file():
-    return jsonify({'success': False, 'message': '此功能在云端不可用'})
-
-@app.route('/api/file/open_folder', methods=['POST'])
-def open_file_folder():
-    return jsonify({'success': False, 'message': '此功能在云端不可用'})
-
 
 # ============ 语音 ============
 
@@ -763,21 +755,19 @@ def get_stats():
         all_tags = app_repo.get_all_tags(conn)
 
         # 统计文件类记忆数量
-        conn2 = get_db_conn()
-        row = conn2.execute(
+        row = conn.execute(
             "SELECT COUNT(*) FROM memories WHERE file_path <> ''"
         ).fetchone()
         total_files = row[0] if row else 0
 
         # 热门标签（从 extra_json 提取带计数）
-        tag_rows = conn2.execute(
+        tag_rows = conn.execute(
             "SELECT extra_json FROM memories WHERE extra_json LIKE '%tags%'"
         ).fetchall()
         tag_counter: dict[str, int] = {}
-        import json as _json
         for tr in tag_rows:
             try:
-                extra = _json.loads(tr[0])
+                extra = json.loads(tr[0])
                 for t in extra.get("tags", []):
                     tag_counter[t] = tag_counter.get(t, 0) + 1
             except Exception:

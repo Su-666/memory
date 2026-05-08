@@ -20,7 +20,7 @@ class ApiError(Exception):
 class MemoryApiClient:
     """记忆助手 HTTP API 客户端"""
 
-    def __init__(self, base_url: str = "https://memory-n.ccwu.cc", client_id: str = "", timeout: int = 30):
+    def __init__(self, base_url: str = "https://memory-n.ccwu.cc", client_id: str = "", timeout: int = 60):
         self.base_url = base_url.rstrip("/")
         self.client_id = client_id
         self.timeout = timeout
@@ -171,9 +171,11 @@ class MemoryApiClient:
         if self.client_id:
             headers["X-Client-Id"] = self.client_id
         req = urllib.request.Request(url, data=bytes(body), headers=headers, method="POST")
+
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                raw = resp.read()
+                return json.loads(raw.decode("utf-8")) if raw else {}
         except urllib.error.HTTPError as e:
             try:
                 err_body = e.read()
