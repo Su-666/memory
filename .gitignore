@@ -1,0 +1,38 @@
+# Python cache and build artifacts
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE files
+.idea/
+.vscode/
+
+# Local secrets
+.env
+web/.env
+
+# Runtime data
+data/
+web/data/
+*.db
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Old web git repo
+web/.git/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Desktop build
+*.exe
+*.msi

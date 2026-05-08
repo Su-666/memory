@@ -1,0 +1,3053 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>暖暖 - 记忆助手</title>
+    <style>
+        :root {
+            --primary: #0f766e;
+            --primary-light: #14b8a6;
+            --primary-dark: #0d5e58;
+            --bg-gradient-start: #f8fafb;
+            --bg-gradient-end: #e8f4f0;
+            --card-bg: #ffffff;
+            --card-border: #d1e7e4;
+            --text-primary: #1a2e2c;
+            --text-secondary: #4a6360;
+            --text-muted: #7a8f8c;
+            --assistant-bg: #f0f7f6;
+            --assistant-border: #c5ddd9;
+            --user-bg: linear-gradient(135deg, #0f766e, #14b8a6);
+            --border-radius: 17px;
+            --shadow: 0 2px 12px rgba(15, 118, 110, 0.08);
+            --shadow-hover: 0 4px 20px rgba(15, 118, 110, 0.12);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(160deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            min-height: 100vh;
+            min-height: 100dvh;
+            height: 100vh;
+            height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #e0f2ee 0%, #d5ebe7 50%, #c8e6e0 100%);
+            border-bottom: 1px solid var(--card-border);
+            padding: 20px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            backdrop-filter: blur(10px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .header-badge {
+            background: linear-gradient(135deg, #fff9f0 0%, #fff5e6 100%);
+            color: #8b6914;
+            border: 1px solid #e8d4a8;
+            border-radius: 13px;
+            padding: 5px 14px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            width: fit-content;
+            box-shadow: 0 1px 3px rgba(139, 105, 20, 0.1);
+        }
+
+        .header-title {
+            font-size: 36px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-subtitle {
+            font-size: 14px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .theme-toggle {
+            background: linear-gradient(135deg, #f8fafb 0%, #e8f4f0 100%);
+            border: 1px solid #d1e7e4;
+            border-radius: 17px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(15, 118, 110, 0.1);
+        }
+
+        body.dark-mode {
+            --bg-gradient-start: #1a2e2c;
+            --bg-gradient-end: #0d5e58;
+            --card-bg: #2a4a47;
+            --card-border: #4a6360;
+            --text-primary: #f0f7f6;
+            --text-secondary: #c5ddd9;
+            --text-muted: #8a9f9c;
+            --assistant-bg: #1a2e2c;
+            --assistant-border: #4a6360;
+            --user-bg: linear-gradient(135deg, #0f766e, #14b8a6);
+        }
+
+        body.dark-mode .header {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 50%, #0f5e58 100%);
+        }
+
+        body.dark-mode .input-area {
+            background: rgba(26, 46, 44, 0.97);
+        }
+
+        body.dark-mode .chat-view {
+            background: linear-gradient(180deg, #1a2e2c 0%, #2a4a47 100%);
+        }
+
+        body.dark-mode .voice-mode-bar {
+            background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+            border-top-color: #10b981;
+            color: #6ee7b7;
+        }
+
+        body.dark-mode .typing-indicator {
+            background: #2a4a47;
+            border-color: #4a6360;
+        }
+
+        body.dark-mode .welcome {
+            color: var(--text-secondary);
+        }
+
+        body.dark-mode .welcome .tip-item {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
+            border-color: var(--card-border);
+        }
+
+        body.dark-mode .bubble-results {
+            background: linear-gradient(135deg, var(--card-bg) 0%, #1a2e2c 100%);
+            border-color: var(--card-border);
+        }
+
+        body.dark-mode .result-item {
+            background: var(--card-bg);
+            border-color: var(--card-border);
+        }
+
+        body.dark-mode .result-item:hover {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
+        }
+
+        body.dark-mode .btn-attach {
+            background: linear-gradient(135deg, #2a4a47 0%, #1a2e2c 100%);
+            border-color: #4a6360;
+            color: #c5ddd9;
+        }
+
+        body.dark-mode .btn-attach:hover {
+            border-color: var(--primary-light);
+            color: var(--primary-light);
+        }
+
+        body.dark-mode .avatar.user {
+            background: linear-gradient(135deg, #4a5568, #6b7280);
+        }
+
+        .stats-badge {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            color: #92400e;
+            border: 1px solid #f59e0b;
+            border-radius: 12px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .stats-badge:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.2);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #fff8f0 0%, #fff5eb 100%);
+            border: 1px solid #e8d4b8;
+            border-radius: 17px;
+            padding: 10px 18px;
+            color: #6b5a3d;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            white-space: nowrap;
+        }
+
+        .btn:hover {
+            background: linear-gradient(135deg, #fffcf5 0%, #fffaef 100%);
+            border-color: #d4b888;
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+
+        .btn-clear:hover {
+            color: #b54a35;
+            border-color: #e8c4b8;
+            background: linear-gradient(135deg, #fff5f0 0%, #fff0eb 100%);
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 960px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 20px;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            min-height: 0;
+        }
+
+        .chat-view {
+            flex: 1;
+            min-height: 0;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: #c5ddd9 transparent;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            background: linear-gradient(180deg, #fafcfb 0%, #f5f9f8 100%);
+        }
+
+        .chat-view::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-view::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-view::-webkit-scrollbar-thumb {
+            background: #c5ddd9;
+            border-radius: 3px;
+        }
+
+        .chat-view::-webkit-scrollbar-thumb:hover {
+            background: #a8c8c2;
+        }
+
+        .bubble-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            animation: bubbleIn 0.25s ease-out;
+        }
+
+        .bubble-row.user {
+            flex-direction: row-reverse;
+        }
+
+        .avatar {
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 700;
+            color: #fff;
+            flex-shrink: 0;
+        }
+
+        .avatar.assistant {
+            background: linear-gradient(135deg, var(--primary), var(--primary-light));
+        }
+
+        .avatar.user {
+            background: linear-gradient(135deg, #6b7280, #9ca3af);
+        }
+
+        .bubble {
+            max-width: 82%;
+            padding: 14px 18px;
+            border-radius: var(--border-radius);
+            line-height: 1.5;
+            word-wrap: break-word;
+            font-size: 16px;
+        }
+
+        @keyframes bubbleIn {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .bubble-user {
+            align-self: flex-end;
+            background: var(--user-bg);
+            border: none;
+            color: #ffffff;
+            box-shadow: 0 3px 12px rgba(15, 118, 110, 0.25);
+        }
+
+        .bubble-assistant {
+            align-self: flex-start;
+            background: var(--assistant-bg);
+            border: 1px solid var(--assistant-border);
+            color: var(--text-primary);
+        }
+
+        .bubble-assistant .bubble-name {
+            display: block;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .bubble-results {
+            align-self: flex-start;
+            background: linear-gradient(135deg, #f0f7ff 0%, #e8f2fe 100%);
+            border: 1px solid #c5d8ed;
+            border-radius: var(--border-radius);
+            padding: 16px;
+            max-width: 92%;
+            animation: bubbleIn 0.3s ease-out;
+        }
+
+        .results-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #7a5a20;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .results-title::before {
+            content: "📋";
+        }
+
+        .result-item {
+            background: #ffffff;
+            border: 1px solid #d5e0ed;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .result-item:hover {
+            border-color: var(--primary-light);
+            background: linear-gradient(135deg, #f5fffe 0%, #eefffc 100%);
+            box-shadow: var(--shadow-hover);
+            transform: translateX(4px);
+        }
+
+        .result-item.selected {
+            border-color: var(--primary) !important;
+            background: linear-gradient(135deg, #e8fff8 0%, #d5f8ef 100%) !important;
+            box-shadow: 0 4px 16px rgba(15, 118, 110, 0.2) !important;
+            transform: translateX(4px);
+        }
+
+        .result-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .result-title {
+            font-weight: 700;
+            color: var(--text-primary);
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .result-summary {
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.45;
+            margin-bottom: 6px;
+        }
+
+        .result-time {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .result-image {
+            max-width: 280px;
+            max-height: 180px;
+            border-radius: 10px;
+            margin-top: 10px;
+            object-fit: cover;
+            border: 1px solid #d5e0ed;
+            transition: transform 0.2s ease;
+        }
+
+        .result-image:hover {
+            transform: scale(1.02);
+        }
+
+        .result-actions {
+            margin-top: 10px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-small {
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .btn-small:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        .input-area {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: linear-gradient(180deg, #f8fcfb 0%, #f4f9f8 100%);
+            border-top: 1px solid var(--card-border);
+        }
+
+        .command-input {
+            flex: 1;
+            padding: 14px 18px;
+            border: 2px solid #d8e8e4;
+            border-radius: var(--border-radius);
+            font-size: 16px;
+            outline: none;
+            background: #ffffff;
+            color: var(--text-primary);
+            transition: all 0.25s ease;
+            /* 防止iOS输入时缩放页面 */
+            font-size: 16px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        .command-input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+        }
+
+        .command-input::placeholder {
+            color: #a8b8b4;
+        }
+
+        .btn-send {
+            width: 54px;
+            height: 54px;
+            border-radius: 27px;
+            background: var(--user-bg);
+            border: none;
+            color: white;
+            font-size: 22px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 14px rgba(15, 118, 110, 0.3);
+        }
+
+        .btn-send:hover:not(:disabled) {
+            transform: scale(1.08);
+            box-shadow: 0 6px 20px rgba(15, 118, 110, 0.4);
+        }
+
+        .btn-send:active:not(:disabled) {
+            transform: scale(0.95);
+        }
+
+        .btn-send:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-attach {
+            width: 44px;
+            height: 44px;
+            border-radius: 22px;
+            background: linear-gradient(135deg, #f0f7f6 0%, #e8f4f0 100%);
+            border: 1.5px solid var(--card-border);
+            color: var(--text-secondary);
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-attach:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+            transform: scale(1.05);
+        }
+
+        .btn-voice {
+            width: 48px;
+            height: 48px;
+            border-radius: 24px;
+            background: linear-gradient(135deg, #e0f7f4 0%, #d5f0ec 100%);
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .btn-voice:hover {
+            background: linear-gradient(135deg, #c8f0ea 0%, #b8e8e0 100%);
+            transform: scale(1.05);
+        }
+
+        .btn-voice.recording {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ff5252 100%);
+            border-color: #ff4444;
+            color: white;
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.4);
+            }
+            50% { 
+                transform: scale(1.08);
+                box-shadow: 0 0 0 12px rgba(255, 82, 82, 0);
+            }
+        }
+
+        .status-bar {
+            margin-top: 12px;
+            padding: 10px 18px;
+            background: linear-gradient(135deg, var(--card-bg) 0%, #f8fcfb 100%);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .loading-dots {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .loading-dots span {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--primary);
+            animation: loadingBounce 1.2s ease-in-out infinite;
+        }
+
+        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes loadingBounce {
+            0%, 100% { transform: translateY(0); opacity: 0.4; }
+            50% { transform: translateY(-6px); opacity: 1; }
+        }
+
+        /* 打字指示器 */
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 14px 18px;
+            background: var(--assistant-bg);
+            border: 1px solid var(--assistant-border);
+            border-radius: var(--border-radius);
+            align-self: flex-start;
+            animation: bubbleIn 0.25s ease-out;
+        }
+
+        .typing-indicator .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            animation: typingDot 1.4s ease-in-out infinite;
+        }
+
+        .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typingDot {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-8px); opacity: 1; }
+        }
+
+        .welcome {
+            text-align: center;
+            padding: 60px 30px;
+            color: var(--text-secondary);
+        }
+
+        .welcome-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .welcome h2 {
+            font-size: 32px;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 12px;
+        }
+
+        .welcome p {
+            margin-bottom: 10px;
+            font-size: 15px;
+        }
+
+        .welcome .tips {
+            margin-top: 28px;
+            text-align: left;
+            max-width: 420px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .welcome .tip-item {
+            background: linear-gradient(135deg, #f5f9f8 0%, #f0f5f3 100%);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+        }
+
+        .welcome .tip-item:hover {
+            border-color: var(--primary-light);
+            background: linear-gradient(135deg, #f0faf8 0%, #e8f5f2 100%);
+            transform: translateX(4px);
+        }
+
+        #audio-indicator {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: linear-gradient(135deg, rgba(15, 118, 110, 0.95) 0%, rgba(20, 184, 166, 0.95) 100%);
+            color: white;
+            padding: 36px 56px;
+            border-radius: var(--border-radius);
+            font-size: 20px;
+            z-index: 1000;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(15, 118, 110, 0.35);
+            backdrop-filter: blur(10px);
+        }
+
+        #audio-indicator .mic-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+            display: block;
+            animation: micPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes micPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
+        #audio-indicator .sub {
+            font-size: 13px;
+            margin-top: 12px;
+            opacity: 0.85;
+        }
+
+        /* 语音模式指示条 */
+        .voice-mode-bar {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 4px 12px;
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-top: 1px solid #6ee7b7;
+            font-size: 12px;
+            color: #065f46;
+            font-weight: 600;
+        }
+        .voice-mode-bar.active {
+            display: flex;
+        }
+        .voice-mode-bar .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            animation: pulseDot 1.5s ease-in-out infinite;
+        }
+        @keyframes pulseDot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+
+        /* 连续对话模式样式 */
+        .btn-voice.recording {
+            background: linear-gradient(135deg, #ff4757 0%, #ff3838 100%);
+            box-shadow: 0 4px 15px rgba(255, 71, 87, 0.4);
+        }
+
+        .btn-voice.recording:hover {
+            background: linear-gradient(135deg, #ff3838 0%, #ff2828 100%);
+            transform: translateY(-2px);
+        }
+
+        /* 监听中：呼吸动画 */
+        .btn-voice.listening {
+            background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+            border-color: #10b981;
+            color: #065f46;
+            animation: voiceBreath 2s ease-in-out infinite;
+        }
+        @keyframes voiceBreath {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+        }
+
+        .pending-indicator {
+            background: linear-gradient(135deg, #fff8e6 0%, #fff3d6 100%);
+            border: 1px solid #e8c88a;
+            border-radius: 10px;
+            padding: 8px 14px;
+            font-size: 12px;
+            color: #8b6914;
+            margin-left: auto;
+            animation: fadeInOut 0.3s ease;
+        }
+
+        @keyframes fadeInOut {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .drop-active {
+            border-color: var(--primary) !important;
+            background: linear-gradient(135deg, #e8fff8 0%, #d8fff4 100%) !important;
+        }
+
+        /* 图片预览模态框 */
+        .image-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.92);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .image-modal-overlay.active {
+            display: flex;
+        }
+
+        .image-modal-content {
+            max-width: 90vw;
+            max-height: 90vh;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            cursor: zoom-in;
+            transition: transform 0.2s ease;
+        }
+
+        .image-modal-content.zoomed {
+            transform: scale(2);
+            cursor: zoom-out;
+            position: absolute;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        .image-modal-close {
+            position: fixed;
+            top: 20px;
+            right: 24px;
+            background: rgba(255, 255, 255, 0.15);
+            color: #fff;
+            border: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            font-size: 24px;
+            cursor: pointer;
+            z-index: 2001;
+            transition: background 0.2s;
+        }
+
+        .image-modal-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .image-modal-info {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #ccc;
+            padding: 8px 20px;
+            border-radius: 20px;
+            font-size: 13px;
+            z-index: 2001;
+        }
+
+        /* ====== 超小屏手机 (≤360px) 如 iPhone SE ====== */
+        @media (max-width: 360px) {
+            .header {
+                padding: 6px 8px;
+                gap: 4px;
+            }
+            .header-title {
+                font-size: 17px;
+            }
+            .header-badge {
+                font-size: 7px;
+                padding: 1px 5px;
+            }
+            .stats-badge {
+                font-size: 9px;
+                padding: 2px 5px;
+            }
+            .btn {
+                padding: 5px 8px;
+                font-size: 10px;
+            }
+            .bubble {
+                max-width: 92%;
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            .welcome h2 {
+                font-size: 18px;
+            }
+            .welcome .tip-item {
+                padding: 8px 10px;
+                font-size: 12px;
+            }
+            .btn-attach {
+                width: 34px;
+                height: 34px;
+                min-width: 34px;
+                font-size: 14px;
+            }
+            .btn-send, .btn-voice {
+                width: 40px;
+                height: 40px;
+                min-width: 40px;
+                font-size: 16px;
+            }
+            .command-input {
+                font-size: 16px;
+                min-height: 40px;
+            }
+            .voice-mode-bar {
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+        }
+
+        /* ====== 手机端适配 (≤700px) ====== */
+        @media (max-width: 700px) {
+            body {
+                height: 100vh;
+                height: 100dvh;
+            }
+            .header {
+                flex-direction: row;
+                gap: 8px;
+                padding: 8px 12px;
+                position: sticky;
+                background: linear-gradient(135deg, #e0f2ee 0%, #d5ebe7 50%, #c8e6e0 100%);
+                min-height: unset;
+            }
+            .header-left {
+                flex: 1;
+                min-width: 0;
+            }
+            .header-badge {
+                font-size: 8px;
+                padding: 2px 6px;
+            }
+            .header-title {
+                font-size: 20px;
+                line-height: 1.1;
+            }
+            .header-subtitle {
+                display: none;
+            }
+            .header-right {
+                width: auto;
+                flex-shrink: 0;
+                gap: 4px;
+            }
+            .stats-badge {
+                font-size: 10px;
+                padding: 3px 7px;
+            }
+            .theme-toggle {
+                padding: 5px 8px;
+                font-size: 12px;
+            }
+            .btn {
+                padding: 6px 10px;
+                font-size: 11px;
+            }
+            .main {
+                padding: 0;
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+                overflow: hidden;
+            }
+            .chat-container {
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+                border-radius: 0;
+                border: none;
+                box-shadow: none;
+            }
+            .chat-view {
+                flex: 1;
+                min-height: 0;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                padding: 10px 8px;
+                padding-bottom: 80px;
+                scroll-padding-bottom: 16px;
+            }
+            .bubble {
+                max-width: 90%;
+                padding: 10px 14px;
+                font-size: 15px;
+                line-height: 1.55;
+            }
+            .bubble-row {
+                gap: 8px;
+            }
+            .avatar {
+                width: 30px;
+                height: 30px;
+                min-width: 30px;
+                font-size: 12px;
+            }
+            .bubble-assistant .bubble-name {
+                font-size: 11px;
+            }
+            .input-area {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                gap: 6px;
+                padding: 8px 10px;
+                padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+                z-index: 99;
+                background: rgba(248, 252, 251, 0.97);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border-top: 1px solid var(--card-border);
+            }
+            body.dark-mode .input-area {
+                background: rgba(26, 46, 44, 0.97);
+            }
+            .command-input {
+                padding: 10px 12px;
+                font-size: 16px;
+                min-height: 44px;
+                max-height: 100px;
+            }
+            .btn-attach {
+                width: 38px;
+                height: 38px;
+                min-width: 38px;
+                font-size: 16px;
+            }
+            .btn-send {
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
+                font-size: 18px;
+            }
+            .btn-voice {
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
+                font-size: 18px;
+            }
+            .status-bar {
+                display: none;
+            }
+            .welcome {
+                padding: 24px 14px 16px;
+            }
+            .welcome-icon {
+                font-size: 42px;
+                margin-bottom: 12px;
+            }
+            .welcome h2 {
+                font-size: 20px;
+            }
+            .welcome p {
+                font-size: 13px;
+            }
+            .welcome .tips {
+                max-width: 100%;
+            }
+            .welcome .tip-item {
+                padding: 10px 12px;
+                font-size: 13px;
+            }
+            .result-item {
+                padding: 10px;
+            }
+            .result-title {
+                font-size: 13px;
+            }
+            .result-summary {
+                font-size: 12px;
+            }
+            .result-image {
+                max-width: 100%;
+                max-height: 160px;
+            }
+            .result-actions {
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+            .btn-small {
+                padding: 5px 10px;
+                font-size: 11px;
+            }
+            .file-pending-area {
+                margin: 0 8px;
+                bottom: 70px;
+                position: fixed;
+                left: 0;
+                right: 0;
+                z-index: 98;
+                border-radius: 0;
+            }
+            #audio-indicator {
+                padding: 24px 36px;
+                font-size: 16px;
+                width: 85%;
+                max-width: 320px;
+            }
+            #audio-indicator .mic-icon {
+                font-size: 36px;
+            }
+            .typing-indicator {
+                padding: 10px 14px;
+            }
+            .voice-mode-bar {
+                font-size: 11px;
+                padding: 3px 8px;
+            }
+        }
+
+        /* 安全区域适配 - iPhone刘海屏 */
+        @supports (padding-bottom: env(safe-area-inset-bottom)) {
+            @media (max-width: 700px) {
+                .input-area {
+                    padding-bottom: max(10px, env(safe-area-inset-bottom));
+                }
+            }
+        }
+
+        /* ====== 平板适配 (701px - 1024px) ====== */
+        @media (min-width: 701px) and (max-width: 1024px) {
+            .header {
+                padding: 14px 24px;
+            }
+            .header-title {
+                font-size: 24px;
+            }
+            .header-subtitle {
+                font-size: 12px;
+            }
+            .main {
+                padding: 0 12px 12px;
+            }
+            .chat-container {
+                border-radius: 14px;
+            }
+            .chat-view {
+                padding: 16px 14px;
+                padding-bottom: 20px;
+            }
+            .bubble {
+                max-width: 80%;
+                font-size: 15px;
+            }
+            .input-area {
+                padding: 10px 14px;
+                gap: 8px;
+            }
+            .command-input {
+                font-size: 16px;
+                min-height: 46px;
+            }
+            .btn-attach {
+                width: 40px;
+                height: 40px;
+                min-width: 40px;
+                font-size: 18px;
+            }
+            .btn-send, .btn-voice {
+                width: 46px;
+                height: 46px;
+                min-width: 46px;
+            }
+            .welcome {
+                padding: 36px 24px 24px;
+            }
+            .welcome h2 {
+                font-size: 24px;
+            }
+            .result-image {
+                max-height: 200px;
+            }
+        }
+
+        /* ====== 桌面端适配 (≥1025px) ====== */
+        @media (min-width: 1025px) {
+            body {
+                align-items: center;
+            }
+            .header {
+                width: 100%;
+                max-width: 900px;
+                margin: 0 auto;
+                border-radius: 0 0 16px 16px;
+                padding: 18px 32px;
+            }
+            .main {
+                width: 100%;
+                max-width: 900px;
+                margin: 0 auto;
+                flex: 1;
+                display: flex;
+                min-height: 0;
+                overflow: hidden;
+            }
+            .chat-container {
+                flex: 1;
+                min-height: 0;
+                display: flex;
+                flex-direction: column;
+            }
+            .chat-view {
+                flex: 1;
+                min-height: 0;
+                padding: 20px;
+                padding-bottom: 24px;
+            }
+            .bubble {
+                max-width: 70%;
+            }
+            .input-area {
+                padding: 12px 16px;
+                gap: 8px;
+            }
+            .command-input {
+                min-height: 48px;
+            }
+            .btn-attach {
+                width: 42px;
+                height: 42px;
+                min-width: 42px;
+            }
+            .btn-send, .btn-voice {
+                width: 48px;
+                height: 48px;
+                min-width: 48px;
+            }
+            .welcome {
+                padding: 48px 32px 32px;
+            }
+            .result-image {
+                max-height: 260px;
+            }
+        }
+
+        /* ====== 大屏居中优化 (≥1400px) ====== */
+        @media (min-width: 1400px) {
+            .header {
+                max-width: 960px;
+            }
+            .main {
+                max-width: 960px;
+            }
+            .bubble {
+                max-width: 65%;
+                font-size: 16px;
+            }
+            .chat-view {
+                padding: 24px;
+            }
+        }
+
+        /* ====== 横屏手机适配 ====== */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .header {
+                padding: 4px 12px;
+                gap: 6px;
+            }
+            .header-title {
+                font-size: 17px;
+            }
+            .header-subtitle {
+                display: none;
+            }
+            .header-badge {
+                display: none;
+            }
+            .header-right {
+                gap: 3px;
+            }
+            .welcome {
+                padding: 12px 16px;
+            }
+            .welcome-icon {
+                font-size: 28px;
+                margin-bottom: 6px;
+            }
+            .welcome h2 {
+                font-size: 17px;
+            }
+            .welcome p {
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+            .welcome .tips {
+                gap: 4px;
+            }
+            .welcome .tip-item {
+                padding: 6px 10px;
+                font-size: 12px;
+            }
+            .chat-view {
+                padding-bottom: 60px;
+            }
+            .input-area {
+                padding: 5px 10px;
+                padding-bottom: max(5px, env(safe-area-inset-bottom, 0px));
+            }
+            .command-input {
+                min-height: 36px;
+                max-height: 60px;
+                font-size: 14px;
+            }
+            .btn-attach {
+                width: 30px;
+                height: 30px;
+                min-width: 30px;
+                font-size: 14px;
+            }
+            .btn-send, .btn-voice {
+                width: 36px;
+                height: 36px;
+                min-width: 36px;
+                font-size: 16px;
+            }
+            .bubble {
+                padding: 8px 12px;
+                font-size: 14px;
+            }
+            .voice-mode-bar {
+                font-size: 10px;
+                padding: 2px 6px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <div class="header-badge">LOCAL MEMORY STUDIO</div>
+            <div class="header-title">暖暖</div>
+            <div class="header-subtitle">你的贴心记忆小助手，记啥问我都行~</div>
+        </div>
+        <div class="header-right">
+            <div class="stats-badge" onclick="showStats()" title="查看统计信息">📊 统计</div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
+            <button class="btn btn-clear" onclick="clearChat()">清空对话</button>
+        </div>
+    </div>
+
+    <div class="main">
+        <div class="chat-container">
+            <div class="chat-view" id="chat-view" aria-live="polite" role="log">
+                <div class="welcome">
+                    <div class="welcome-icon">🌸</div>
+                    <h2>嗨，我是暖暖~</h2>
+                    <p>告诉我你想记住什么，或者问我"之前记过啥"</p>
+                    <p>点击🎤可以语音聊天哦</p>
+                    <div class="tips">
+                        <div class="tip-item">💬 说：「帮我记住手机号138xxxx」</div>
+                        <div class="tip-item">🔍 问：「我之前记过什么？」</div>
+                        <div class="tip-item">🎤 点麦克风开始语音聊天</div>
+                        <div class="tip-item">📁 拖文件到输入框可以上传</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="voice-mode-bar" id="voice-mode-bar">
+                <div class="pulse-dot"></div>
+                <span>语音对话模式 · 说完自动识别 · 点击🎤关闭</span>
+            </div>
+            <div class="input-area" id="drop-area">
+                <button class="btn-attach" id="attach-btn" title="上传文件" aria-label="上传文件" onclick="document.getElementById('file-input').click()">📎</button>
+                <input type="file" id="file-input" multiple accept="image/*,.pdf,.doc,.docx,.txt,.md" style="display:none;" onchange="handleFileSelect(this.files)">
+                <textarea class="command-input" id="command-input" placeholder="跟我说说~（回车发送）" onkeypress="handleKeyPress(event)" rows="1" maxlength="2000" style="resize: none; overflow: hidden;"></textarea>
+                <button class="btn-voice" id="voice-btn" title="点击开始语音对话" aria-label="语音对话" onclick="toggleVoice()" ontouchstart="voiceLongPressStart(event)" ontouchend="voiceLongPressEnd(event)" onmousedown="voiceLongPressStart(event)" onmouseup="voiceLongPressEnd(event)">🎤</button>
+                <button class="btn-send" id="send-btn" title="发送" onclick="sendMessage()">➜</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <div id="status">准备就绪</div>
+        <div class="loading-dots" id="loading" style="display: none;">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+        <div id="pending-indicator" class="pending-indicator" style="display: none;">
+            等待补充内容...
+        </div>
+    </div>
+
+    <div id="audio-indicator">
+        <div class="mic-icon">🎤</div>
+        <div>正在监听...</div>
+        <div class="sub">检测到语音自动开始录音</div>
+    </div>
+
+    <!-- 图片预览模态框 (默认隐藏) -->
+    <div id="image-modal" class="image-modal-overlay">
+        <button class="image-modal-close" id="modal-close-btn">✕</button>
+        <img id="modal-image" class="image-modal-content" alt="图片预览" 
+             onclick="toggleImageZoom(event)" 
+             style="display:none;"
+             onerror="handleImageError(this)">
+        <div id="modal-error" style="display:none; color:#fff; text-align:center; padding:40px;">
+            <div style="font-size:48px; margin-bottom:16px;">😢</div>
+            <div style="font-size:18px; margin-bottom:12px;">无法加载图片</div>
+            <div style="font-size:12px; color:#aaa; word-break:break-all; max-width:80%; margin-top:10px;" id="modal-error-path"></div>
+            <div style="margin-top:24px;">
+                <button id="modal-close-btn-2"
+                        style="background:var(--primary);color:white;border:none;padding:10px 28px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:600;">
+                    关闭
+                </button>
+            </div>
+        </div>
+        <div id="modal-info" class="image-modal-info"></div>
+    </div>
+
+    <!-- 统计信息弹窗 -->
+    <div id="stats-modal" class="image-modal-overlay" style="display: none;">
+        <div class="stats-modal-content" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card-bg); border-radius: 20px; padding: 30px; max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <h3 style="margin: 0 0 20px 0; color: var(--text-primary); font-size: 24px;">📊 记忆统计</h3>
+            <div id="stats-content">
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">⏳</div>
+                    <div>加载中...</div>
+                </div>
+            </div>
+            <div style="text-align: right; margin-top: 20px;">
+                <button onclick="closeStatsModal()" style="background: var(--assistant-bg); border: 1px solid var(--card-border); border-radius: 10px; padding: 8px 16px; cursor: pointer; color: var(--text-primary);">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chatHistory = [];
+        let isRecording = false;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let pendingSaveText = null;
+
+        // 缓存常用 DOM 引用（避免重复查询）
+        const $sendBtn = document.getElementById('send-btn');
+        const $commandInput = document.getElementById('command-input');
+        const $chatView = document.getElementById('chat-view');
+        const $status = document.getElementById('status');
+        const $loading = document.getElementById('loading');
+        const $pendingIndicator = document.getElementById('pending-indicator');
+        const $audioIndicator = document.getElementById('audio-indicator');
+        const $voiceBtn = document.getElementById('voice-btn');
+        const $voiceModeBar = document.getElementById('voice-mode-bar');
+        const $imageModal = document.getElementById('image-modal');
+        const $modalImage = document.getElementById('modal-image');
+        const $modalError = document.getElementById('modal-error');
+
+        const sendBtn = $sendBtn; // 兼容旧代码引用
+
+        // 语音对话相关变量
+        let isVoiceMode = false; // 语音对话模式（自动朗读回复+连续对话）
+        let mediaRecorderSupported = false;
+        let selectedMimeType = '';
+
+        // 输入框自动调整高度
+        function autoResizeTextarea() {
+            $commandInput.style.height = 'auto';
+            $commandInput.style.height = Math.min($commandInput.scrollHeight, 120) + 'px';
+        }
+
+        // 监听输入框输入事件
+        $commandInput.addEventListener('input', autoResizeTextarea);
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function setStatus(text) {
+            $status.textContent = text;
+        }
+
+        function setLoading(show) {
+            $loading.style.display = show ? 'flex' : 'none';
+            $sendBtn.disabled = show;
+        }
+
+        function showPendingIndicator(show) {
+            $pendingIndicator.style.display = show ? 'block' : 'none';
+            if (show) {
+                $commandInput.placeholder = '告诉我具体内容~（如：138xxxx）';
+                $commandInput.style.borderColor = '#e8c88a';
+            } else {
+                $commandInput.placeholder = '跟我说说~（回车发送）';
+                $commandInput.style.borderColor = '';
+            }
+        }
+
+        async function sendMessage() {
+            const text = $commandInput.value.trim();
+            if (!text && !pendingSaveText) return;
+
+            if (pendingSaveText) {
+                addBubble('user', text);
+                $commandInput.value = '';
+                setLoading(true);
+                setStatus('正在保存...');
+
+                try {
+                    const response = await fetch('/api/chat/confirm_save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ text: text, pending_text: pendingSaveText })
+                    });
+                    const data = await response.json();
+                    if (data.text) addBubble('assistant', data.text);
+                    pendingSaveText = null;
+                    showPendingIndicator(false);
+                } catch (e) {
+                    addBubble('assistant', '保存出了点问题: ' + e.message);
+                }
+
+                setLoading(false);
+                setStatus('准备就绪');
+                return;
+            }
+
+            addBubble('user', text);
+            $commandInput.value = '';
+            autoResizeTextarea();
+            setLoading(true);
+            setStatus('正在处理...');
+            showTypingIndicator();
+            scrollToBottom();
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    addBubble('assistant', '哎呀，出了点小问题: ' + data.error);
+                    setStatus('出错了');
+                    // 语音模式下出错也要继续监听，否则会卡住
+                    if (voiceVadActive) {
+                        continueVoiceLoop();
+                    }
+                } else {
+                    if (data.pending_save) {
+                        pendingSaveText = data.pending_save;
+                        showPendingIndicator(true);
+                    }
+
+                    addBubble('assistant', data.text);
+
+                    if (data.results && data.results.length > 0) {
+                        showResults(data.results);
+                    }
+
+                    // 语音模式下自动朗读回复
+                    if (voiceVadActive) {
+                        if (data.text) {
+                            // 如果有搜索结果，把结果内容也加入朗读
+                            let textToSpeak = data.text;
+                            if (data.results && data.results.length > 0) {
+                                const r = data.results[0];
+                                const summary = r.summary || r.body || '';
+                                if (summary && summary.length < 100) {
+                                    textToSpeak += '。' + summary;
+                                }
+                            }
+                            await speakText(textToSpeak);
+                        } else {
+                            // 没有回复文本，直接继续监听
+                            continueVoiceLoop();
+                        }
+                    }
+                }
+
+            } catch (e) {
+                addBubble('assistant', '网络好像不太给力，稍后再试试？');
+                setStatus('网络错误');
+                // 语音模式下网络错误也要继续监听
+                if (voiceVadActive) {
+                    continueVoiceLoop();
+                }
+            }
+
+            hideTypingIndicator();
+            setLoading(false);
+            // 语音模式下不覆盖状态（speakText 会自行设置状态）
+            if (!voiceVadActive) {
+                setStatus('准备就绪');
+            }
+        }
+
+        function showTypingIndicator() {
+            const existing = $chatView.querySelector('.typing-indicator');
+            if (existing) existing.remove();
+            const indicator = document.createElement('div');
+            indicator.className = 'typing-indicator';
+            indicator.innerHTML = '<div class="dot"></div><div class="dot"></div><div class="dot"></div>';
+            $chatView.appendChild(indicator);
+            requestAnimationFrame(scrollToBottom);
+        }
+
+        function hideTypingIndicator() {
+            const indicator = $chatView.querySelector('.typing-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        function scrollToBottom() {
+            requestAnimationFrame(() => {
+                $chatView.scrollTop = $chatView.scrollHeight;
+            });
+        }
+
+        function addBubble(type, text) {
+            const welcome = $chatView.querySelector('.welcome');
+            if (welcome) welcome.remove();
+
+            const now = new Date();
+            const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+
+            const row = document.createElement('div');
+            row.className = 'bubble-row ' + type;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar ' + type;
+            avatar.textContent = type === 'assistant' ? '暖' : '我';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble bubble-' + type;
+
+            if (type === 'assistant') {
+                bubble.innerHTML = '<span class="bubble-name">暖暖 · ' + timeStr + '</span>' + escapeHtml(text).replace(/\n/g, '<br>');
+            } else {
+                bubble.innerHTML = escapeHtml(text).replace(/\n/g, '<br>') + '<div style="font-size:11px;opacity:0.6;text-align:right;margin-top:4px;">' + timeStr + '</div>';
+            }
+
+            row.appendChild(avatar);
+            row.appendChild(bubble);
+            $chatView.appendChild(row);
+            requestAnimationFrame(scrollToBottom);
+        }
+
+        function showResults(results) {
+            const container = document.createElement('div');
+            container.className = 'bubble-results';
+
+            const title = document.createElement('div');
+            title.className = 'results-title';
+            title.textContent = '相关记忆';
+            container.appendChild(title);
+
+            results.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'result-item';
+                
+                // 点击卡片 - 不再自动搜索，让用户选择操作
+                div.addEventListener('click', function(e) {
+                    // 如果点击的是按钮或其子元素，忽略
+                    if (e.target.closest('.btn-small') || e.target.tagName === 'IMG') return;
+                    
+                    // 高亮当前选中的卡片
+                    document.querySelectorAll('.result-item.selected').forEach(el => el.classList.remove('selected'));
+                    this.classList.add('selected');
+                    
+                    // 提示用户使用按钮操作
+                    setStatus('💡 请使用「📋 复制记忆」或「🖼️ 查看大图」按钮');
+                    setTimeout(() => setStatus('准备就绪'), 2000);
+                });
+                
+                let html = `<div class="result-title">${escapeHtml(item.title || '无标题')}</div>`;
+                if (item.summary) {
+                    html += `<div class="result-summary">${escapeHtml(item.summary)}</div>`;
+                }
+                if (item.time) {
+                    html += `<div class="result-time">${escapeHtml(item.time)}</div>`;
+                }
+                
+                const filePath = (item.file_path || '').trim();
+                
+                // 显示图片预览（如果有图片）
+                const isImageFile = filePath && /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(filePath);
+                if (isImageFile) {
+                    // 生成唯一的图片ID用于后续引用
+                    const imgId = 'mem-img-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5);
+                    html += `<img class="result-image" id="${imgId}" src="/api/file/image?path=${encodeURIComponent(filePath)}" alt="预览" loading="lazy" data-full-src="/api/file/image?path=${encodeURIComponent(filePath)}">`;
+                }
+                
+                // 准备要复制的文本内容
+                let copyContent = '';
+                if (item.body && item.body !== item.title) {
+                    copyContent = escapeHtml(item.body);
+                } else if (item.summary) {
+                    copyContent = escapeHtml(item.summary);
+                } else if (item.title) {
+                    copyContent = escapeHtml(item.title);
+                }
+                
+                html += `<div class="result-actions">`;
+                html += `<button class="btn-small" onclick="copyMemory(event, ${JSON.stringify(item).replace(/"/g, '&quot;')})">📋 复制记忆</button>`;
+                if (isImageFile) {
+                    // 直接使用当前卡片的图片元素来放大
+                    html += `<button class="btn-small" onclick="zoomImage(this)">🖼️ 查看大图</button>`;
+                }
+                html += `</div>`;
+                
+                div.innerHTML = html;
+                container.appendChild(div);
+            });
+
+            $chatView.appendChild(container);
+            requestAnimationFrame(scrollToBottom);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        // 直接用图片URL显示大图（最可靠的方式）
+        function zoomImage(btnElement) {
+            if (btnElement) {
+                if (typeof btnElement.stopPropagation === 'function') {
+                    btnElement.stopPropagation();
+                }
+                if (btnElement.preventDefault) btnElement.preventDefault();
+            }
+            
+            const card = btnElement ? btnElement.closest('.result-item') : null;
+            if (!card) return;
+            
+            const imgEl = card.querySelector('.result-image');
+            if (!imgEl) return;
+            
+            const title = card.querySelector('.result-title') ? card.querySelector('.result-title').textContent : '';
+            
+            if (imgEl.src && imgEl.src.length > 10) {
+                showImageFromSrc(imgEl.src, title);
+            } else {
+                // 图片还没加载完成，等一下再试
+                imgEl.onload = function() {
+                    showImageFromSrc(this.src, title);
+                };
+                setStatus('加载中...');
+            }
+        }
+
+        // 用已验证的URL显示大图
+        function showImageFromSrc(imageSrc, title) {
+            const info = document.getElementById('modal-info');
+
+            // 重置状态
+            $modalImage.style.display = 'block';
+            $modalError.style.display = 'none';
+            $modalImage.className = 'image-modal-content';
+
+            // 直接复用能显示的图片地址（加时间戳避免缓存）
+            $modalImage.src = imageSrc + '&_full=1&t=' + Date.now();
+
+            info.textContent = title ? (title + ' | 点击放大/缩小 | ESC 关闭') : '点击放大/缩小 | ESC 关闭';
+
+            $imageModal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeImageModal() {
+            $imageModal.classList.remove('active');
+            document.body.style.overflow = '';
+            $modalImage.src = '';
+            $modalImage.style.display = 'none';
+            $modalError.style.display = 'none';
+        }
+
+        // 统计信息相关函数
+        async function showStats() {
+            const modal = document.getElementById('stats-modal');
+            const content = document.getElementById('stats-content');
+            
+            content.innerHTML = `
+                <div style="text-align: center; padding: 40px;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">⏳</div>
+                    <div>加载中...</div>
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+            
+            try {
+                const response = await fetch('/api/stats');
+                const stats = await response.json();
+                
+                if (stats.error) {
+                    throw new Error(stats.error);
+                }
+                
+                content.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+                        <div style="text-align: center; padding: 20px; background: var(--assistant-bg); border-radius: 12px; border: 1px solid var(--card-border);">
+                            <div style="font-size: 28px; font-weight: bold; color: var(--primary); margin-bottom: 4px;">${stats.total_memories || 0}</div>
+                            <div style="color: var(--text-secondary); font-size: 13px;">总记忆数</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: var(--assistant-bg); border-radius: 12px; border: 1px solid var(--card-border);">
+                            <div style="font-size: 28px; font-weight: bold; color: var(--primary); margin-bottom: 4px;">${stats.recent_count || 0}</div>
+                            <div style="color: var(--text-secondary); font-size: 13px;">最近记忆</div>
+                        </div>
+                        <div style="text-align: center; padding: 20px; background: var(--assistant-bg); border-radius: 12px; border: 1px solid var(--card-border);">
+                            <div style="font-size: 28px; font-weight: bold; color: var(--primary); margin-bottom: 4px;">${stats.total_files || 0}</div>
+                            <div style="color: var(--text-secondary); font-size: 13px;">文件数量</div>
+                        </div>
+                    </div>
+
+                    ${stats.top_tags && stats.top_tags.length > 0 ? `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">热门标签</h4>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                ${stats.top_tags.slice(0, 10).map(([tag, count]) =>
+                                    `<span style="background: var(--assistant-bg); color: var(--primary); padding: 6px 12px; border-radius: 20px; font-size: 13px; font-weight: 500; border: 1px solid var(--card-border);">${tag} (${count})</span>`
+                                ).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${stats.storage_size ? `
+                        <div style="margin-bottom: 20px;">
+                            <h4 style="margin: 0 0 12px 0; color: var(--text-primary); font-size: 16px; font-weight: 600;">存储信息</h4>
+                            <div style="background: var(--assistant-bg); padding: 12px; border-radius: 8px; border: 1px solid var(--card-border);">
+                                <div style="font-size: 18px; font-weight: bold; color: var(--primary);">${stats.storage_formatted || '0 MB'}</div>
+                                <div style="color: var(--text-secondary); font-size: 12px;">保险库总大小</div>
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    ${stats.last_updated ? `
+                        <div style="color: var(--text-secondary); font-size: 12px; text-align: center; padding-top: 16px; border-top: 1px solid var(--card-border);">
+                            📅 最后更新: ${new Date(stats.last_updated).toLocaleString('zh-CN')}
+                        </div>
+                    ` : ''}
+                `;
+                
+            } catch (error) {
+                content.innerHTML = `
+                    <div style="text-align: center; padding: 40px; color: #dc2626;">
+                        <div style="font-size: 48px; margin-bottom: 10px;">❌</div>
+                        <div>加载失败: ${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+
+        function closeStatsModal() {
+            document.getElementById('stats-modal').style.display = 'none';
+        }
+
+        // ====== 语音系统 ======
+
+        // 检测浏览器音频支持
+        function detectAudioSupport() {
+            if (!window.MediaRecorder) {
+                mediaRecorderSupported = false;
+                return;
+            }
+            const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+            for (const t of types) {
+                if (MediaRecorder.isTypeSupported(t)) {
+                    mediaRecorderSupported = true;
+                    selectedMimeType = t;
+                    return;
+                }
+            }
+            mediaRecorderSupported = false;
+        }
+
+        // ========== 语音对话系统 v3 - 实时VAD连续对话 ==========
+        // 点击🎤 → 进入语音模式 → VAD自动检测说话 → 录音 → 自动停止 → 识别 → 朗读 → VAD监听...
+        // 再点击🎤 → 退出语音模式
+        // 朗读时说话 → 自动打断并开始新录音
+        let voiceState = 'idle'; // idle, listening, recording, processing, speaking
+        let voiceMicStream = null;      // 持续的麦克风流
+        let voiceAudioContext = null;   // Web Audio API 上下文
+        let voiceScriptNode = null;     // ScriptProcessorNode（实时VAD）
+        let voiceRecorder = null;       // MediaRecorder
+        let voiceVadActive = false;     // VAD是否运行中
+        const VAD_RMS_THRESHOLD = 500;  // 语音开始阈值（时域RMS，参考桌面端800）
+        const VAD_SILENCE_MS = 2000;    // 静音超过此时间停止录音（与桌面端一致）
+        const VAD_MIN_RECORD_MS = 800;  // 最少录音时间
+        const VAD_MAX_RECORD_MS = 30000; // 最长录音时间（安全阀）
+        let voiceRecordStartTime = 0;   // 录音开始时间
+        let voiceSpeechStarted = false; // 是否已检测到语音开始
+
+        // 点击语音按钮
+        async function toggleVoice() {
+            if (voiceState === 'idle') {
+                await enterVoiceMode();
+            } else {
+                exitVoiceMode();
+            }
+        }
+
+        // 进入语音对话模式
+        async function enterVoiceMode() {
+            detectAudioSupport();
+            if (!mediaRecorderSupported) {
+                setStatus('当前浏览器不支持语音录制');
+                return;
+            }
+
+            try {
+                voiceMicStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000
+                    }
+                });
+
+                voiceAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                if (voiceAudioContext.state === 'suspended') {
+                    await voiceAudioContext.resume();
+                }
+
+                // 创建音频源和 ScriptProcessorNode（实时VAD，类似桌面端 sd.InputStream）
+                const source = voiceAudioContext.createMediaStreamSource(voiceMicStream);
+                const bufferSize = 4096;
+                voiceScriptNode = voiceAudioContext.createScriptProcessor(bufferSize, 1, 1);
+
+                voiceScriptNode.onaudioprocess = (event) => {
+                    if (!voiceVadActive) return;
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    // 计算 RMS（与桌面端一致）
+                    let sum = 0;
+                    for (let i = 0; i < inputData.length; i++) {
+                        sum += inputData[i] * inputData[i];
+                    }
+                    const rms = Math.sqrt(sum / inputData.length) * 32768; // 缩放到 int16 范围
+                    handleVAD(rms);
+                };
+
+                source.connect(voiceScriptNode);
+                voiceScriptNode.connect(voiceAudioContext.destination);
+
+                voiceState = 'listening';
+                isVoiceMode = true;
+                voiceVadActive = true;
+                voiceSpeechStarted = false;
+                voiceRecordStartTime = 0;
+                updateVoiceButton();
+                setStatus('👂 语音模式 · 请说话...');
+
+            } catch (e) {
+                console.error('语音模式启动失败:', e);
+                setStatus('无法访问麦克风: ' + e.message);
+                exitVoiceMode();
+            }
+        }
+
+        // 退出语音模式
+        function exitVoiceMode() {
+            voiceVadActive = false;
+            voiceState = 'idle';
+            isVoiceMode = false;
+            isRecording = false;
+            voiceSpeechStarted = false;
+            voiceSilenceStart = 0;
+            voiceSpeechConfirmCount = 0;
+
+            if (voiceRecorder && voiceRecorder.state !== 'inactive') {
+                try { voiceRecorder.stop(); } catch(e) {}
+            }
+
+            if (voiceScriptNode) {
+                try { voiceScriptNode.disconnect(); } catch(e) {}
+                voiceScriptNode = null;
+            }
+
+            if (voiceMicStream) {
+                voiceMicStream.getTracks().forEach(t => t.stop());
+                voiceMicStream = null;
+            }
+
+            if (voiceAudioContext) {
+                voiceAudioContext.close();
+                voiceAudioContext = null;
+            }
+
+            // 停止播放
+            if (window._currentAudio) {
+                window._currentAudio.pause();
+                window._currentAudio = null;
+            }
+
+            $audioIndicator.style.display = 'none';
+            updateVoiceButton();
+            setStatus('语音模式已退出');
+            setTimeout(() => setStatus('准备就绪'), 1500);
+        }
+
+        // VAD 核心：由 ScriptProcessorNode.onaudioprocess 驱动（时域RMS，与桌面端一致）
+        let voiceSilenceStart = 0;  // 静音开始时间戳
+        let voiceSpeechConfirmCount = 0; // 连续超阈值帧计数（防噪声误触发）
+        const SPEECH_CONFIRM_FRAMES = 2; // 需要连续 2 帧超阈值才确认语音开始
+        const BARGE_IN_THRESHOLD = 800; // 打断阈值高于普通VAD，避免TTS自身声音误触发
+        let voiceTtsStartTime = 0;      // TTS开始播放时间
+        function handleVAD(rms) {
+            if (!voiceVadActive) return;
+            const now = Date.now();
+
+            if (voiceState === 'listening') {
+                // 监听中：连续多帧超阈值才确认语音开始，避免噪声误触发
+                if (rms > VAD_RMS_THRESHOLD) {
+                    voiceSpeechConfirmCount++;
+                    if (voiceSpeechConfirmCount >= SPEECH_CONFIRM_FRAMES) {
+                        console.log(`[VAD] 语音确认 RMS=${rms.toFixed(0)}，开始录音`);
+                        voiceSpeechStarted = true;
+                        voiceSpeechConfirmCount = 0;
+                        voiceSilenceStart = 0;
+                        startVoiceRecording();
+                    }
+                } else {
+                    voiceSpeechConfirmCount = 0;
+                }
+            } else if (voiceState === 'recording') {
+                const recordDuration = now - voiceRecordStartTime;
+
+                // 安全阀：最长录音时间
+                if (recordDuration > VAD_MAX_RECORD_MS) {
+                    console.log('[VAD] 录音超时，自动停止');
+                    stopVoiceRecording();
+                    return;
+                }
+
+                if (rms > VAD_RMS_THRESHOLD) {
+                    // 有声音，重置静音计时
+                    voiceSilenceStart = 0;
+                } else if (voiceSpeechStarted) {
+                    // 静音中，且之前检测到过语音
+                    if (!voiceSilenceStart) {
+                        voiceSilenceStart = now;
+                    }
+                    const silenceDuration = now - voiceSilenceStart;
+                    if (silenceDuration > VAD_SILENCE_MS && recordDuration > VAD_MIN_RECORD_MS) {
+                        console.log(`[VAD] 静音 ${silenceDuration}ms，停止录音`);
+                        stopVoiceRecording();
+                    }
+                }
+            } else if (voiceState === 'speaking') {
+                // 朗读中：检测用户说话进行打断（延迟1.5s避免TTS自身声音触发）
+                const elapsed = now - voiceTtsStartTime;
+                if (elapsed > 1500 && rms > BARGE_IN_THRESHOLD) {
+                    console.log(`[VAD] 打断检测 RMS=${rms.toFixed(0)}`);
+                    interruptSpeaking();
+                }
+            }
+            // processing 状态：不做任何事
+        }
+
+        // 开始录音（由 handleVAD 触发）
+        function startVoiceRecording() {
+            if (voiceState !== 'listening' || !voiceMicStream) return;
+
+            try {
+                audioChunks = [];
+                voiceRecorder = new MediaRecorder(voiceMicStream, {
+                    mimeType: selectedMimeType || 'audio/webm'
+                });
+
+                voiceRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                voiceRecorder.onstop = async () => {
+                    if (audioChunks.length > 0) {
+                        await processVoiceRecording();
+                    } else {
+                        if (voiceVadActive) {
+                            voiceState = 'listening';
+                            voiceSpeechStarted = false;
+                            updateVoiceButton();
+                            setStatus('👂 语音模式 · 请说话...');
+                        }
+                    }
+                };
+
+                voiceRecorder.start(250);
+                voiceState = 'recording';
+                voiceRecordStartTime = Date.now();
+                isRecording = true;
+
+                updateVoiceButton();
+                setStatus('🎙️ 正在听你说...');
+                $audioIndicator.style.display = 'block';
+                $audioIndicator.innerHTML = `
+                    <div class="mic-icon">🎙️</div>
+                    <div>正在听...</div>
+                    <div class="sub">说完停一下，我自动处理</div>
+                `;
+
+            } catch (e) {
+                console.error('录音启动失败:', e);
+                voiceState = 'listening';
+                voiceSpeechStarted = false;
+                updateVoiceButton();
+            }
+        }
+
+        // 停止录音（由 handleVAD 触发）
+        function stopVoiceRecording() {
+            if (voiceState !== 'recording' || !voiceRecorder) return;
+
+            try {
+                voiceRecorder.stop();
+                voiceState = 'processing';
+                isRecording = false;
+                voiceSpeechStarted = false;
+
+                setStatus('🔄 正在识别...');
+                $audioIndicator.innerHTML = `
+                    <div class="mic-icon">🔄</div>
+                    <div>正在识别...</div>
+                    <div class="sub">请稍候</div>
+                `;
+                updateVoiceButton();
+            } catch (e) {
+                console.error('停止录音失败:', e);
+                voiceState = 'listening';
+                isRecording = false;
+                voiceSpeechStarted = false;
+                updateVoiceButton();
+            }
+        }
+
+        // 处理录音结果 — 与 sendMessage 完全一致的逻辑，加上语音播报
+        async function processVoiceRecording() {
+            try {
+                let audioBlob;
+                try {
+                    audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    audioBlob = await convertWebMToWAV(audioBlob);
+                } catch (e) {
+                    console.warn('音频转换失败，直接发送:', e);
+                    audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
+                }
+
+                console.log(`[语音] 录音数据: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+                const formData = new FormData();
+                formData.append('audio', audioBlob, 'recording.wav');
+
+                // 如果有待保存内容，传给后端处理确认/取消/合并
+                if (pendingSaveText) {
+                    formData.append('pending_save_text', pendingSaveText);
+                }
+
+                setStatus('🔄 正在识别和回复...');
+
+                const response = await fetch('/api/voice_dialogue', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                $audioIndicator.style.display = 'none';
+
+                if (data.error) {
+                    console.error('[voice_dialogue] 错误:', data.error);
+                    addBubble('assistant', '哎呀，出了点小问题: ' + data.error);
+                    resetToListening();
+                    return;
+                }
+
+                // ASR 未识别到文字（retry=true）
+                if (data.retry) {
+                    if (data.text) addBubble('assistant', data.text);
+                    resetToListening();
+                    return;
+                }
+
+                // 显示用户说的话
+                if (data.user_text) {
+                    addBubble('user', data.user_text);
+
+                    // 退出词检测
+                    const exitWords = ['退出', '不用了', '结束', '拜拜', '再见', '停'];
+                    if (exitWords.some(w => data.user_text.includes(w))) {
+                        addBubble('assistant', '好的，有什么需要再叫我~');
+                        exitVoiceMode();
+                        return;
+                    }
+                }
+
+                // --- 以下与 sendMessage 的响应处理完全一致 ---
+
+                // 如果后端处理了待保存（saved=true），清除前端的 pending 状态
+                if (data.saved && pendingSaveText) {
+                    pendingSaveText = null;
+                    showPendingIndicator(false);
+                }
+
+                // 新的待保存确认状态
+                if (data.pending_save) {
+                    pendingSaveText = data.pending_save;
+                    showPendingIndicator(true);
+                }
+
+                // 显示助手回复
+                if (data.text) {
+                    addBubble('assistant', data.text);
+                }
+
+                // 搜索结果
+                if (data.results && data.results.length > 0) {
+                    showResults(data.results);
+                }
+
+                // 播放回复语音
+                if (data.audio) {
+                    voiceState = 'speaking';
+                    updateVoiceButton();
+                    await playVoiceAudio(data.audio);
+                    // playVoiceAudio 的 onended 会调用 continueVoiceLoop
+                } else {
+                    resetToListening();
+                }
+
+            } catch (error) {
+                console.error('语音处理失败:', error);
+                $audioIndicator.style.display = 'none';
+                addBubble('assistant', '处理出了点问题，再试一次？');
+                resetToListening();
+            }
+        }
+
+        // 播放 base64 编码的语音音频（从 voice_dialogue 返回）
+        async function playVoiceAudio(audioB64) {
+            try {
+                const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
+                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
+
+                if (window._currentAudio) {
+                    window._currentAudio.pause();
+                    window._currentAudio = null;
+                }
+
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
+                audio._blobUrl = audioUrl;
+                window._currentAudio = audio;
+
+                // 安全阀
+                const speakTimeout = setTimeout(() => {
+                    console.warn('[TTS] 朗读超时，自动继续');
+                    if (window._currentAudio === audio) {
+                        audio.pause();
+                        window._currentAudio = null;
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    continueVoiceLoop();
+                }, 30000);
+
+                // 先绑定事件，再播放
+                audio.onended = () => {
+                    clearTimeout(speakTimeout);
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
+                    continueVoiceLoop();
+                };
+
+                audio.onerror = () => {
+                    clearTimeout(speakTimeout);
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
+                    continueVoiceLoop();
+                };
+
+                setStatus('🔊 正在朗读...');
+                voiceTtsStartTime = Date.now(); // handleVAD 用此延迟打断检测
+                await audio.play();
+
+            } catch (e) {
+                console.error('语音播放失败:', e);
+                continueVoiceLoop();
+            }
+        }
+
+        // 重置到监听状态的辅助函数（onaudioprocess 会自动驱动 VAD，无需手动启动循环）
+        function resetToListening() {
+            if (voiceVadActive) {
+                voiceState = 'listening';
+                voiceSpeechStarted = false;
+                voiceSilenceStart = 0;
+                updateVoiceButton();
+                setStatus('👂 语音模式 · 请说话...');
+            }
+        }
+
+        // 朗读完成后继续监听
+        function continueVoiceLoop() {
+            if (!voiceVadActive) return;
+            if (voiceState === 'speaking' || voiceState === 'processing') {
+                voiceState = 'listening';
+                voiceSpeechStarted = false;
+                voiceSilenceStart = 0;
+                updateVoiceButton();
+                setStatus('👂 语音模式 · 请说话...');
+            }
+        }
+
+        // 打断朗读（用户说话时）
+        function interruptSpeaking() {
+            if (voiceState === 'speaking') {
+                // 停止播放
+                if (window._currentAudio) {
+                    window._currentAudio.pause();
+                    window._currentAudio = null;
+                }
+                // 直接切到 listening 状态，让 handleVAD 自动检测并开始录音
+                voiceState = 'listening';
+                voiceSpeechStarted = false;
+                voiceSilenceStart = 0;
+                updateVoiceButton();
+                setStatus('🎙️ 打断中，请说...');
+                $audioIndicator.style.display = 'block';
+                $audioIndicator.innerHTML = `
+                    <div class="mic-icon">🎙️</div>
+                    <div>正在听...</div>
+                    <div class="sub">说完停一下</div>
+                `;
+            }
+        }
+
+        // 更新语音按钮状态
+        function updateVoiceButton() {
+            const barSpan = $voiceModeBar.querySelector('span');
+
+            $voiceBtn.classList.remove('recording', 'listening');
+            $voiceBtn.style.borderColor = '';
+            $voiceBtn.style.background = '';
+            $voiceBtn.style.color = '';
+
+            if (voiceState === 'recording') {
+                $voiceBtn.textContent = '⏹️';
+                $voiceBtn.title = '正在录音...';
+                $voiceBtn.classList.add('recording');
+                $voiceModeBar.classList.add('active');
+                barSpan.textContent = '正在听你说... 停一下自动处理';
+            } else if (voiceState === 'processing') {
+                $voiceBtn.textContent = '🔄';
+                $voiceBtn.title = '识别中...';
+                $voiceBtn.classList.add('recording');
+                $voiceModeBar.classList.add('active');
+                barSpan.textContent = '正在识别语音...';
+            } else if (voiceState === 'speaking') {
+                $voiceBtn.textContent = '🔊';
+                $voiceBtn.title = '正在朗读...说话可打断';
+                $voiceBtn.classList.add('recording');
+                $voiceModeBar.classList.add('active');
+                barSpan.textContent = '正在朗读 · 说话可以打断我';
+            } else if (voiceState === 'listening') {
+                $voiceBtn.textContent = '🎤';
+                $voiceBtn.title = '语音模式 · 点击退出';
+                $voiceBtn.classList.add('listening');
+                $voiceModeBar.classList.add('active');
+                barSpan.textContent = '语音模式 · 说完自动识别 · 点击🎤退出';
+            } else {
+                $voiceBtn.textContent = '🎤';
+                $voiceBtn.title = '点击开始语音对话';
+                $voiceModeBar.classList.remove('active');
+            }
+        }
+
+        // 长按：按住说话，松开发送（单次录音模式）
+        let longPressTimer = null;
+        let isLongPress = false;
+
+        async function voiceLongPressStart(e) {
+            if (e) e.preventDefault();
+            isLongPress = false;
+            longPressTimer = setTimeout(async () => {
+                isLongPress = true;
+                if (voiceState === 'idle') {
+                    await enterVoiceMode();
+                }
+            }, 400);
+        }
+
+        function voiceLongPressEnd(e) {
+            if (e) e.preventDefault();
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+        }
+
+        // 初始化主题
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme');
+            const toggleBtn = document.querySelector('.theme-toggle');
+            
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-mode');
+                toggleBtn.textContent = '☀️';
+                toggleBtn.title = '切换到亮色模式';
+            } else {
+                toggleBtn.textContent = '🌙';
+                toggleBtn.title = '切换到暗色模式';
+            }
+        }
+        
+        // 图片加载失败处理
+        function handleImageError(imgEl) {
+            console.error('[图片预览] 加载失败, src:', imgEl.src);
+            imgEl.style.display = 'none';
+            const errorPath = document.getElementById('modal-error-path');
+            errorPath.textContent = imgEl.src || '(无法获取路径)';
+            $modalError.style.display = 'block';
+        }
+
+        function toggleImageZoom(event) {
+            if (event) event.stopPropagation();
+            if ($modalImage && $modalImage.classList) {
+                $modalImage.classList.toggle('zoomed');
+            }
+        }
+
+        // 绑定图片模态框事件
+        $imageModal.addEventListener('click', function(e) {
+            const targetId = e.target.id ? e.target.id : '';
+            if (e.target === this || targetId === 'modal-close-btn' || targetId === 'modal-close-btn-2') {
+                closeImageModal();
+            }
+        });
+
+        // ESC 关闭
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                if ($imageModal.classList.contains('active')) {
+                    closeImageModal();
+                }
+            }
+        });
+        
+        async function copyText(event, text) {
+            // 阻止点击事件冒泡
+            if (event) {
+                event.stopPropagation();
+            }
+            
+            if (!text) return;
+            
+            try {
+                await navigator.clipboard.writeText(text);
+                setStatus('✅ 已复制到剪贴板！');
+                setTimeout(() => setStatus('准备就绪'), 2000);
+            } catch (e) {
+                // 降级方案
+                const textarea = document.createElement('textarea');
+                textarea.value = text;
+                document.body.appendChild(textarea);
+                textarea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textarea);
+                setStatus('✅ 已复制！');
+                setTimeout(() => setStatus('准备就绪'), 2000);
+            }
+        }
+        
+        // 复制整条记忆（格式化）
+        async function copyMemory(event, item) {
+            // 阻止点击事件冒泡
+            if (event) {
+                event.stopPropagation();
+            }
+            
+            // 格式化输出
+            let text = '';
+            if (item.title && item.title !== '无标题') {
+                text += `【${item.title}】\n`;
+            }
+            if (item.summary || item.body) {
+                text += (item.body || item.summary).trim();
+            }
+            if (!text) {
+                text = item.title || '无内容';
+            }
+            
+            // 添加时间（如果有）
+            if (item.time) {
+                text += `\n\n📅 ${item.time}`;
+            }
+            
+            try {
+                await navigator.clipboard.writeText(text);
+                
+                // 显示成功提示动画
+                const btn = event.target.closest('.btn-small');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✅ 已复制';
+                btn.style.background = '#10b981';
+                btn.style.color = '#fff';
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.style.background = '';
+                    btn.style.color = '';
+                }, 2000);
+                
+                setStatus('✅ 记忆已复制！');
+                setTimeout(() => setStatus('准备就绪'), 2000);
+            } catch (e) {
+                console.error('复制失败:', e);
+                setStatus('❌ 复制失败');
+            }
+        }
+
+        function clearChat() {
+            if (confirm('确定要清空所有对话记录吗？此操作不可撤销。')) {
+                $chatView.innerHTML = `
+                    <div class="welcome">
+                        <div class="welcome-icon">🌸</div>
+                        <h2>嗨，我是暖暖~</h2>
+                        <p>告诉我你想记住什么，或者问我"之前记过啥"</p>
+                        <p>点击🎤可以语音聊天哦</p>
+                        <div class="tips">
+                            <div class="tip-item">💬 说：「帮我记住手机号138xxxx」</div>
+                            <div class="tip-item">🔍 问：「我之前记过什么？」</div>
+                            <div class="tip-item">🎤 点麦克风开始语音聊天</div>
+                            <div class="tip-item">📁 拖文件到输入框可以上传</div>
+                        </div>
+                    </div>
+                `;
+                pendingSaveText = null;
+                showPendingIndicator(false);
+                chatHistory = [];
+                fetch('/api/clear', { method: 'POST' });
+                setStatus('✅ 已清空对话记录');
+                setTimeout(() => setStatus('准备就绪'), 2000);
+            }
+        }
+
+        // 主题切换功能
+        function toggleTheme() {
+            const body = document.body;
+            const toggleBtn = document.querySelector('.theme-toggle');
+            
+            if (body.classList.contains('dark-mode')) {
+                body.classList.remove('dark-mode');
+                toggleBtn.textContent = '🌙';
+                toggleBtn.title = '切换到暗色模式';
+                localStorage.setItem('theme', 'light');
+            } else {
+                body.classList.add('dark-mode');
+                toggleBtn.textContent = '☀️';
+                toggleBtn.title = '切换到亮色模式';
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // 旧版语音函数已被新语音系统替代
+
+        // 将 WebM 转换为 WAV 格式（百度ASR需要WAV）
+        async function convertWebMToWAV(webmBlob) {
+            const arrayBuffer = await webmBlob.arrayBuffer();
+            // 复用 voiceAudioContext（已设为 16kHz），避免每次新建
+            const actx = voiceAudioContext || new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+            const audioBuffer = await actx.decodeAudioData(arrayBuffer);
+
+            const targetSampleRate = 16000;
+            // 如果解码后已经是 16kHz 则跳过重采样
+            let finalBuffer = audioBuffer;
+            if (audioBuffer.sampleRate !== targetSampleRate) {
+                finalBuffer = resampleAudio(audioBuffer, targetSampleRate);
+            }
+
+            const wavData = audioBufferToWav(finalBuffer, targetSampleRate);
+            return new Blob([wavData], { type: 'audio/wav' });
+        }
+
+        // 重采样音频
+        function resampleAudio(audioBuffer, targetSampleRate) {
+            const sourceSampleRate = audioBuffer.sampleRate;
+            const sourceLength = audioBuffer.length;
+            const targetLength = Math.round(sourceLength * targetSampleRate / sourceSampleRate);
+            const sourceData = audioBuffer.getChannelData(0);
+
+            // 创建新的缓冲区（模拟）
+            const resampledData = new Float32Array(targetLength);
+
+            // 简单线性插值重采样
+            for (let i = 0; i < targetLength; i++) {
+                const sourceIndex = i * sourceSampleRate / targetSampleRate;
+                const index = Math.floor(sourceIndex);
+                const fraction = sourceIndex - index;
+
+                if (index + 1 < sourceLength) {
+                    resampledData[i] = sourceData[index] * (1 - fraction) + sourceData[index + 1] * fraction;
+                } else {
+                    resampledData[i] = sourceData[index] || 0;
+                }
+            }
+
+            return {
+                length: targetLength,
+                sampleRate: targetSampleRate,
+                getChannelData: () => resampledData
+            };
+        }
+
+        // 将 AudioBuffer 转换为 WAV 格式
+        function audioBufferToWav(audioBuffer, sampleRate) {
+            const numChannels = 1; // 单声道
+            const format = 1; // PCM
+            const bitDepth = 16;
+
+            const bytesPerSample = bitDepth / 8;
+            const blockAlign = numChannels * bytesPerSample;
+            const numFrames = audioBuffer.length;
+            const dataSize = numFrames * blockAlign;
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+
+            // RIFF header
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            // fmt chunk
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, format, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * blockAlign, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitDepth, true);
+            // data chunk
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            // 写入PCM数据
+            const channelData = audioBuffer.getChannelData(0);
+            let offset = 44;
+            for (let i = 0; i < numFrames; i++) {
+                const sample = Math.max(-1, Math.min(1, channelData[i]));
+                view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                offset += 2;
+            }
+
+            return buffer;
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        async function speakText(text) {
+            try {
+                let cleanText = text.replace(/\n/g, ' ')
+                    .replace(/（[^）]+）/g, '')
+                    .replace(/https?:\/\/\S+/g, '')
+                    .replace(/\*\*/g, '')
+                    .replace(/[#*`\-_]/g, '')
+                    .trim();
+                if (!cleanText) {
+                    continueVoiceLoop();
+                    return;
+                }
+                cleanText = cleanText.slice(0, 280);
+
+                setStatus('🔊 正在合成语音...');
+
+                const response = await fetch('/api/speech_synthesize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: cleanText })
+                });
+
+                const data = await response.json();
+                if (data.error) {
+                    console.warn('语音合成失败:', data.error);
+                    setStatus('语音合成失败，继续监听...');
+                    continueVoiceLoop();
+                    return;
+                }
+
+                const audioB64 = data.audio;
+                const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
+                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
+
+                if (window._currentAudio) {
+                    window._currentAudio.pause();
+                    window._currentAudio = null;
+                }
+
+                const audioUrl = URL.createObjectURL(audioBlob);
+                const audio = new Audio(audioUrl);
+                audio._blobUrl = audioUrl;
+                window._currentAudio = audio;
+
+                // 安全阀：朗读超时后自动继续（防止卡住）
+                const speakTimeout = setTimeout(() => {
+                    console.warn('[TTS] 朗读超时，自动继续');
+                    if (window._currentAudio === audio) {
+                        audio.pause();
+                        window._currentAudio = null;
+                        URL.revokeObjectURL(audioUrl);
+                    }
+                    continueVoiceLoop();
+                }, (cleanText.length * 200) + 15000);
+
+                // 【关键】先绑定事件处理器，再调用 play()，防止短音频在绑定前就播完
+                audio.onended = () => {
+                    clearTimeout(speakTimeout);
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) {
+                        window._currentAudio = null;
+                    }
+                    continueVoiceLoop();
+                };
+
+                audio.onerror = () => {
+                    clearTimeout(speakTimeout);
+                    URL.revokeObjectURL(audioUrl);
+                    if (window._currentAudio === audio) window._currentAudio = null;
+                    continueVoiceLoop();
+                };
+
+                setStatus('🔊 正在朗读...');
+                voiceTtsStartTime = Date.now();
+                await audio.play();
+
+            } catch (e) {
+                console.error('语音播放失败:', e);
+                continueVoiceLoop();
+            }
+        }
+
+        // 文件暂存区
+        let pendingFiles = [];
+
+        // 添加文件上传按钮样式
+        const fileUploadStyle = `
+            .file-pending-area {
+                background: linear-gradient(135deg, #fff8f0 0%, #fffaef 100%);
+                border: 2px dashed #e8c88a;
+                border-radius: 14px;
+                padding: 12px 16px;
+                margin-bottom: 10px;
+                display: none;
+            }
+            .file-pending-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 10px;
+                font-size: 13px;
+                color: #8b6914;
+                font-weight: 600;
+            }
+            .file-pending-list {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                margin-bottom: 10px;
+            }
+            .file-preview-item {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                background: #fff;
+                border: 1px solid #e8d4b8;
+                border-radius: 10px;
+                padding: 6px 12px;
+                font-size: 13px;
+                max-width: 200px;
+            }
+            .file-preview-thumb {
+                width: 36px;
+                height: 36px;
+                border-radius: 6px;
+                object-fit: cover;
+                flex-shrink: 0;
+            }
+            .file-preview-name {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: #333;
+            }
+            .file-remove-btn {
+                color: #b54a35;
+                cursor: pointer;
+                margin-left: 6px;
+                font-size: 16px;
+                line-height: 1;
+            }
+            .file-upload-actions {
+                display: flex;
+                gap: 8px;
+            }
+            .btn-confirm-upload {
+                background: var(--primary);
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 8px 20px;
+                font-size: 13px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            .btn-confirm-upload:hover {
+                background: var(--primary-dark);
+            }
+            .btn-cancel-upload {
+                background: transparent;
+                color: #999;
+                border: 1px solid #ddd;
+                border-radius: 10px;
+                padding: 8px 16px;
+                font-size: 13px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }
+            .btn-cancel-upload:hover {
+                background: #f5f5f5;
+            }
+        `;
+        
+        // 插入样式
+        const styleSheet = document.createElement('style');
+        styleSheet.textContent = fileUploadStyle;
+        document.head.appendChild(styleSheet);
+
+        // 创建暂存区域
+        const inputArea = document.getElementById('drop-area');
+        const filePendingArea = document.createElement('div');
+        filePendingArea.className = 'file-pending-area';
+        filePendingArea.id = 'file-pending-area';
+        filePendingArea.innerHTML = `
+            <div class="file-pending-header">
+                <span>📎 待上传的文件 (<span id="pending-count">0</span>)</span>
+                <button onclick="clearPendingFiles()" style="background:none;border:none;color:#999;cursor:pointer;font-size:18px;line-height:1;">✕</button>
+            </div>
+            <div class="file-pending-list" id="pending-file-list"></div>
+            <div class="file-upload-actions">
+                <input type="text" id="file-caption" placeholder="添加说明文字（可选）..." 
+                       style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:10px;font-size:13px;">
+                <button class="btn-confirm-upload" onclick="confirmUploadFiles()">📤 确认上传</button>
+                <button class="btn-cancel-upload" onclick="clearPendingFiles()">取消</button>
+            </div>
+        `;
+        inputArea.parentNode.insertBefore(filePendingArea, inputArea);
+
+        function updatePendingUI() {
+            const area = document.getElementById('file-pending-area');
+            const list = document.getElementById('pending-file-list');
+            const count = document.getElementById('pending-count');
+            
+            if (pendingFiles.length === 0) {
+                area.style.display = 'none';
+                return;
+            }
+            
+            area.style.display = 'block';
+            count.textContent = pendingFiles.length;
+            
+            list.innerHTML = '';
+            pendingFiles.forEach((file, index) => {
+                const item = document.createElement('div');
+                item.className = 'file-preview-item';
+                
+                if (file.type.startsWith('image/')) {
+                    const img = document.createElement('img');
+                    img.src = URL.createObjectURL(file);
+                    img.className = 'file-preview-thumb';
+                    img.onload = () => URL.revokeObjectURL(img.src);
+                    item.appendChild(img);
+                } else {
+                    const icon = document.createElement('span');
+                    icon.textContent = '📄';
+                    icon.style.fontSize = '24px';
+                    item.appendChild(icon);
+                }
+                
+                const name = document.createElement('span');
+                name.className = 'file-preview-name';
+                name.title = file.name;
+                name.textContent = file.name;
+                item.appendChild(name);
+                
+                const removeBtn = document.createElement('span');
+                removeBtn.className = 'file-remove-btn';
+                removeBtn.textContent = '✕';
+                removeBtn.onclick = () => removePendingFile(index);
+                item.appendChild(removeBtn);
+                
+                list.appendChild(item);
+            });
+        }
+
+        function removePendingFile(index) {
+            pendingFiles.splice(index, 1);
+            updatePendingUI();
+        }
+
+        function clearPendingFiles() {
+            pendingFiles = [];
+            updatePendingUI();
+            setStatus('准备就绪');
+        }
+
+        function addFilesToPending(files) {
+            for (const file of files) {
+                pendingFiles.push(file);
+            }
+            updatePendingUI();
+            
+            if (pendingFiles.length > 0) {
+                setStatus(`已选择 ${pendingFiles.length} 个文件，请点击「确认上传」`);
+            }
+        }
+
+        async function confirmUploadFiles() {
+            if (pendingFiles.length === 0) return;
+            
+            setLoading(true);
+            setStatus('正在上传...');
+
+            const caption = document.getElementById('file-caption').value.trim();
+
+            const formData = new FormData();
+            for (let i = 0; i < pendingFiles.length; i++) {
+                formData.append('files', pendingFiles[i]);
+            }
+            if (caption) {
+                formData.append('caption', caption);
+            }
+
+            try {
+                const response = await fetch('/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+                
+                // 先记录数量再清空
+                const uploadedCount = pendingFiles.length;
+                
+                // 清空暂存
+                clearPendingFiles();
+                document.getElementById('file-caption').value = '';
+                
+                if (data.success) {
+                    addBubble('user', `[上传${caption ? ': ' + caption : ''}] ${uploadedCount}个文件`);
+                    addBubble('assistant', data.message || '文件已保存到记忆库。');
+                } else {
+                    addBubble('assistant', '上传失败: ' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                addBubble('assistant', '上传失败: ' + e.message);
+            }
+
+            setLoading(false);
+            setStatus('准备就绪');
+        }
+
+        function handleFileSelect(files) {
+            if (files.length > 0) {
+                addFilesToPending(files);
+            }
+            // 重置 input 以允许重复选择同一文件
+            document.getElementById('file-input').value = '';
+        }
+
+        const dropArea = document.getElementById('drop-area');
+        
+        dropArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropArea.classList.add('drop-active');
+        });
+
+        dropArea.addEventListener('dragleave', () => {
+            dropArea.classList.remove('drop-active');
+        });
+
+        dropArea.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('drop-active');
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                // 暂存文件而不是直接上传
+                addFilesToPending(files);
+            }
+        });
+
+        // 聊天区域也支持拖拽
+        $chatView.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            $chatView.style.background = 'rgba(15, 118, 110, 0.05)';
+        });
+
+        $chatView.addEventListener('dragleave', () => {
+            $chatView.style.background = '';
+        });
+
+        $chatView.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            $chatView.style.background = '';
+            
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                addFilesToPending(files);
+            }
+        });
+        
+        // 初始化主题
+        initTheme();
+
+        // 检测音频支持
+        detectAudioSupport();
+    </script>
+</body>
+</html>
