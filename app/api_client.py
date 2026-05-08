@@ -20,7 +20,7 @@ class ApiError(Exception):
 class MemoryApiClient:
     """记忆助手 HTTP API 客户端"""
 
-    def __init__(self, base_url: str = "http://localhost:5000", client_id: str = "", timeout: int = 30):
+    def __init__(self, base_url: str = "https://memory-n.ccwu.cc", client_id: str = "", timeout: int = 30):
         self.base_url = base_url.rstrip("/")
         self.client_id = client_id
         self.timeout = timeout

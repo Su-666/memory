@@ -1267,7 +1267,7 @@ class AgentWindow(QMainWindow):
             self._client_id = uuid.uuid4().hex[:16]
             self._settings.setValue("client/id", self._client_id)
 
-        server_url = self._settings.value("server/url", "", type=str) or "http://localhost:5000"
+        server_url = self._settings.value("server/url", "", type=str) or "https://memory-n.ccwu.cc"
         self._api = MemoryApiClient(base_url=server_url, client_id=self._client_id, timeout=30)
 
         # 加载暗色模式偏好
