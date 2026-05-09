@@ -7,7 +7,6 @@ import html
 import io
 import os
 from pathlib import Path
-import ssl
 import subprocess
 import sys
 import threading
@@ -394,11 +393,12 @@ class StatsDialog(QDialog):
     _stats_result = pyqtSignal(dict)
     _stats_error = pyqtSignal(str)
 
-    def __init__(self, api_client: MemoryApiClient, parent=None):
+    def __init__(self, api_client: MemoryApiClient, parent=None, dark_mode: bool = False):
         super().__init__(parent)
         self.setWindowTitle("记忆统计")
         self.setMinimumSize(380, 420)
         self._api = api_client
+        self._dark_mode = dark_mode
         self._stats_result.connect(self._render_stats)
         self._stats_error.connect(lambda e: self._show_error(str(e)))
         self._build_ui()
@@ -406,29 +406,43 @@ class StatsDialog(QDialog):
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        layout.setContentsMargins(28, 28, 28, 28)
+        layout.setSpacing(18)
 
         self._title_lbl = QLabel("记忆统计")
-        self._title_lbl.setStyleSheet("font-size:22px; font-weight:800; color:#173834;")
+        if self._dark_mode:
+            self._title_lbl.setStyleSheet("font-size:24px; font-weight:900; color:#6ee7c0; letter-spacing:-0.01em;")
+        else:
+            self._title_lbl.setStyleSheet("font-size:24px; font-weight:900; color:#0a5c56; letter-spacing:-0.01em;")
         layout.addWidget(self._title_lbl)
 
         self._stats_container = QVBoxLayout()
-        self._stats_container.setSpacing(12)
+        self._stats_container.setSpacing(14)
         layout.addLayout(self._stats_container)
 
         self._loading_lbl = QLabel("加载中...")
-        self._loading_lbl.setStyleSheet("color:#8a7b6a; font-size:14px;")
+        if self._dark_mode:
+            self._loading_lbl.setStyleSheet("color:#5a9a8a; font-size:14px;")
+        else:
+            self._loading_lbl.setStyleSheet("color:#7a9a8e; font-size:14px;")
         self._stats_container.addWidget(self._loading_lbl)
 
         layout.addStretch(1)
 
         close_btn = QPushButton("关闭")
         close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.setStyleSheet(
-            "QPushButton{background:#0f766e; color:#fff; border:none; border-radius:17px; padding:10px 24px; font-weight:600;}"
-            "QPushButton:hover{background:#0d6b64;}"
-        )
+        if self._dark_mode:
+            close_btn.setStyleSheet(
+                "QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0f766e,stop:1 #14a89a);"
+                "color:#fff; border:none; border-radius:20px; padding:10px 28px; font-weight:700; font-size:14px;}"
+                "QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #14a89a,stop:1 #20d4b8);}"
+            )
+        else:
+            close_btn.setStyleSheet(
+                "QPushButton{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0d6b64,stop:1 #0f766e);"
+                "color:#fff; border:none; border-radius:20px; padding:10px 28px; font-weight:700; font-size:14px;}"
+                "QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0a5c56,stop:1 #0d6b64);}"
+            )
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, 0, Qt.AlignRight)
 
@@ -459,9 +473,13 @@ class StatsDialog(QDialog):
         for label, value in items:
             row = QHBoxLayout()
             lbl = QLabel(label)
-            lbl.setStyleSheet("color:#5c736d; font-size:14px;")
             val = QLabel(value)
-            val.setStyleSheet("color:#173834; font-size:16px; font-weight:700;")
+            if self._dark_mode:
+                lbl.setStyleSheet("color:#7ab8a8; font-size:14px; font-weight:500;")
+                val.setStyleSheet("color:#6ee7c0; font-size:17px; font-weight:800;")
+            else:
+                lbl.setStyleSheet("color:#5a8a7e; font-size:14px; font-weight:500;")
+                val.setStyleSheet("color:#0a5c56; font-size:17px; font-weight:800;")
             row.addWidget(lbl)
             row.addStretch(1)
             row.addWidget(val)
@@ -470,16 +488,27 @@ class StatsDialog(QDialog):
         top_tags = stats.get("top_tags", [])
         if top_tags:
             sep = QLabel("热门标签")
-            sep.setStyleSheet("color:#7a4b25; font-size:13px; font-weight:700; margin-top:8px;")
-            self._stats_container.addWidget(sep)
             tags_layout = QHBoxLayout()
-            tags_layout.setSpacing(6)
+            tags_layout.setSpacing(8)
+            if self._dark_mode:
+                sep.setStyleSheet("color:#e8c878; font-size:12px; font-weight:700; margin-top:10px; letter-spacing:0.05em;")
+            else:
+                sep.setStyleSheet("color:#8a6a28; font-size:12px; font-weight:700; margin-top:10px; letter-spacing:0.05em;")
+            self._stats_container.addWidget(sep)
             for tag, count in top_tags[:8]:
                 chip = QLabel(f"{tag} ({count})")
-                chip.setStyleSheet(
-                    "background:#fff7eb; border:1px solid #ecd8b8; border-radius:12px;"
-                    "padding:4px 10px; color:#6c5738; font-size:12px; font-weight:600;"
-                )
+                if self._dark_mode:
+                    chip.setStyleSheet(
+                        "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(20,61,56,0.9),stop:1 rgba(30,70,60,0.9));"
+                        "border:1px solid rgba(212,162,89,0.15); border-radius:16px;"
+                        "padding:5px 12px; color:#e8c878; font-size:12px; font-weight:600;"
+                    )
+                else:
+                    chip.setStyleSheet(
+                        "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #fff9f0,stop:1 #fff3e0);"
+                        "border:1px solid rgba(218,165,32,0.15); border-radius:16px;"
+                        "padding:5px 12px; color:#8a6a28; font-size:12px; font-weight:600;"
+                    )
                 tags_layout.addWidget(chip)
             tags_layout.addStretch(1)
             self._stats_container.addLayout(tags_layout)
@@ -491,7 +520,10 @@ class StatsDialog(QDialog):
             if w:
                 w.deleteLater()
         err = QLabel(f"加载失败: {msg}")
-        err.setStyleSheet("color:#b6491d; font-size:14px;")
+        if self._dark_mode:
+            err.setStyleSheet("color:#e87a5a; font-size:14px;")
+        else:
+            err.setStyleSheet("color:#b6491d; font-size:14px;")
         self._stats_container.addWidget(err)
 
 
@@ -501,7 +533,7 @@ class ImageZoomDialog(QDialog):
     def __init__(self, pixmap: QPixmap, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        self.setStyleSheet("background: rgba(0,0,0,0.85);")
+        self.setStyleSheet("background: rgba(0,0,0,0.92);")
         self._pix = pixmap
 
         layout = QVBoxLayout(self)
@@ -511,17 +543,26 @@ class ImageZoomDialog(QDialog):
         self._img_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self._img_label, 1)
 
+        # 关闭按钮 - 右上角
         close_btn = QPushButton("✕")
-        close_btn.setFixedSize(36, 36)
+        close_btn.setFixedSize(40, 40)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet(
-            "QPushButton{background:rgba(255,255,255,0.2); color:#fff; border:none; border-radius:18px; font-size:18px;}"
-            "QPushButton:hover{background:rgba(255,255,255,0.4);}"
+            "QPushButton{background:rgba(255,255,255,0.12); color:#fff; border:1px solid rgba(255,255,255,0.08);"
+            "border-radius:20px; font-size:18px;}"
+            "QPushButton:hover{background:rgba(255,255,255,0.25);}"
         )
         close_btn.clicked.connect(self.close)
         close_btn.setParent(self)
         close_btn.move(20, 20)
 
+        # 底部提示标签
+        self._hint_lbl = QLabel("点击任意位置关闭 · 滚轮缩放")
+        self._hint_lbl.setStyleSheet("color:rgba(255,255,255,0.4); font-size:12px; padding:8px;")
+        self._hint_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self._hint_lbl)
+
+        self._scale_factor = 1.0
         self._update_pixmap()
 
     def _update_pixmap(self):
@@ -563,12 +604,16 @@ class AgentWindow(QMainWindow):
         self._pending_save_text: str | None = None
         self._refit_debounce_timer: QTimer | None = None
         self._chat_history: list[dict] = []
+        self._chat_bubbles: list[QWidget] = []  # 跟踪气泡，避免 findChildren
         self._api: MemoryApiClient | None = None
         self._client_id: str = ""
         self._online: bool = False
         self._health_timer: QTimer | None = None
         self._version_timer: QTimer | None = None
         self._dark_mode: bool = False
+        self._is_sending: bool = False  # 防止重复发送
+        self._typing_widget: QWidget | None = None  # 打字指示器
+        self._MAX_CHAT_MESSAGES = 120  # 最多保留消息数
 
         # 气泡参数
         self._bubble_radius = 17
@@ -628,13 +673,13 @@ class AgentWindow(QMainWindow):
         tb_layout.setContentsMargins(16, 0, 12, 0)
 
         title_lbl = QLabel("暖暖")
-        title_lbl.setStyleSheet("font-size:16px; font-weight:700; color:#173834;")
+        title_lbl.setObjectName("titleBarLabel")
         tb_layout.addWidget(title_lbl)
         tb_layout.addStretch(1)
 
         # 连接状态
         self._conn_status_label = QLabel("○ 离线")
-        self._conn_status_label.setStyleSheet("color: #b6491d; font-size: 12px;")
+        self._conn_status_label.setObjectName("connStatusLabel")
         tb_layout.addWidget(self._conn_status_label)
         tb_layout.addSpacing(12)
 
@@ -694,11 +739,6 @@ class AgentWindow(QMainWindow):
         self.clear_btn = QPushButton("清空对话")
         self.clear_btn.setObjectName("headerClearBtn")
         self.clear_btn.setCursor(Qt.PointingHandCursor)
-        self.clear_btn.setStyleSheet(
-            "QPushButton#headerClearBtn{background:#fff7eb; border:1px solid #ecd8b8; border-radius:17px;"
-            "padding:8px 16px; color:#6c5738; font-size:14px; font-weight:600;}"
-            "QPushButton#headerClearBtn:hover{background:#fffdf7; border-color:#d7b785; color:#a63d2a;}"
-        )
         self.clear_btn.clicked.connect(self._clear_query)
         right_col.addWidget(self.clear_btn)
 
@@ -713,13 +753,13 @@ class AgentWindow(QMainWindow):
         update_layout = QHBoxLayout(self._update_bar)
         update_layout.setContentsMargins(16, 6, 16, 6)
         self._update_label = QLabel()
-        self._update_label.setStyleSheet("color:#9a6a2b; font-size:13px; font-weight:600;")
+        self._update_label.setObjectName("updateLabel")
         self._update_label.setCursor(Qt.PointingHandCursor)
         self._update_label.mousePressEvent = lambda e: self._open_download_url()
         update_layout.addWidget(self._update_label, 1)
         close_update = QPushButton("✕")
+        close_update.setObjectName("updateCloseBtn")
         close_update.setFixedSize(24, 24)
-        close_update.setStyleSheet("QPushButton{border:none; color:#9a6a2b; font-size:14px;} QPushButton:hover{color:#b6491d;}")
         close_update.clicked.connect(lambda: self._update_bar.setVisible(False))
         update_layout.addWidget(close_update)
         main_layout.addWidget(self._update_bar)
@@ -731,7 +771,7 @@ class AgentWindow(QMainWindow):
         offline_layout = QHBoxLayout(self._offline_bar)
         offline_layout.setContentsMargins(16, 6, 16, 6)
         self._offline_label = QLabel("正在尝试重新连接...")
-        self._offline_label.setStyleSheet("color:#b6491d; font-size:13px; font-weight:600;")
+        self._offline_label.setObjectName("offlineLabel")
         offline_layout.addWidget(self._offline_label, 1)
         main_layout.addWidget(self._offline_bar)
 
@@ -767,7 +807,7 @@ class AgentWindow(QMainWindow):
         pending_layout = QHBoxLayout(self._pending_bar)
         pending_layout.setContentsMargins(16, 4, 16, 4)
         pending_lbl = QLabel("⏳ 等待补充内容...")
-        pending_lbl.setStyleSheet("color:#9a6a2b; font-size:13px; font-weight:600;")
+        pending_lbl.setObjectName("pendingLabel")
         pending_layout.addWidget(pending_lbl, 1)
         chat_layout.addWidget(self._pending_bar)
 
@@ -855,11 +895,8 @@ class AgentWindow(QMainWindow):
             target = obj.parent()
         if isinstance(target, QTextBrowser):
             etype = event.type()
-            if etype == 31:
-                return True
-            if etype in (179, 180):
-                return True
-            if etype == 6:
+            # 只拦截键盘导航事件（防止用户方向键滚动气泡）
+            if etype == 6:  # KeyPress
                 key = event.key()
                 if key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Left, Qt.Key_Right):
                     return True
@@ -912,19 +949,23 @@ class AgentWindow(QMainWindow):
             self._refit_debounce_timer = QTimer(self)
             self._refit_debounce_timer.setSingleShot(True)
             self._refit_debounce_timer.timeout.connect(self._refit_chat_bubbles)
-        self._refit_debounce_timer.start(50)
+        self._refit_debounce_timer.start(200)  # 200ms 防抖，避免频繁触发
 
     def _refit_chat_bubbles(self) -> None:
+        """只重新计算最近几个气泡的宽度，不遍历全部控件"""
         try:
             if not hasattr(self, "_chat_inner"):
                 return
             rp = self._responsive_params()
             avail = int(rp["avail"])
-            preview_w = int(rp["preview_w"])
-            preview_h = int(rp["preview_h"])
             pad_m = self._bubble_pad_x
 
-            for frame in self._chat_inner.findChildren(QFrame, "chatBubbleFrame"):
+            # 只处理最后 8 个气泡（新消息通常在底部）
+            recent_bubbles = self._chat_bubbles[-8:] if len(self._chat_bubbles) > 8 else self._chat_bubbles
+            for outer in recent_bubbles:
+                frame = outer.findChild(QFrame, "chatBubbleFrame")
+                if not frame:
+                    continue
                 body = frame.findChild(QTextBrowser, "chatBubbleBody")
                 plain = str(frame.property("plainText") or "")
                 title = str(frame.property("bubbleTitle") or "")
@@ -945,12 +986,7 @@ class AgentWindow(QMainWindow):
                     body_w = max(40, new_frame_w - dyn_pad * 2)
                     body.setFixedWidth(body_w)
                     frame.setFixedWidth(new_frame_w)
-
-            for w in self._chat_inner.findChildren(QWidget, "relatedContainer"):
-                for img in w.findChildren(QLabel, "relatedPreviewImage"):
-                    img.setFixedSize(preview_w, preview_h)
-            for tb in self._chat_inner.findChildren(QTextBrowser):
-                self._fit_text_browser(tb)
+                    self._fit_text_browser(body)
         except Exception:
             return
 
@@ -960,6 +996,15 @@ class AgentWindow(QMainWindow):
             self._chat_layout.insertWidget(idx, w, 0, Qt.AlignRight)
         else:
             self._chat_layout.insertWidget(idx, w)
+        self._chat_bubbles.append(w)
+
+        # 超出上限时移除最早的消息（防止内存无限增长导致卡死）
+        while len(self._chat_bubbles) > self._MAX_CHAT_MESSAGES:
+            old = self._chat_bubbles.pop(0)
+            self._chat_layout.removeWidget(old)
+            old.setParent(None)
+            old.deleteLater()
+
         self._schedule_refit_chat_bubbles()
         QTimer.singleShot(10, self._scroll_chat_to_bottom)
 
@@ -982,18 +1027,32 @@ class AgentWindow(QMainWindow):
 
         # 头像
         avatar = QLabel("暖" if not align_right else "我")
-        avatar.setFixedSize(36, 36)
+        avatar.setFixedSize(38, 38)
         avatar.setAlignment(Qt.AlignCenter)
-        avatar_color = "#0f766e" if not align_right else "#6c5738"
-        avatar.setStyleSheet(
-            f"background:{avatar_color}; color:#fff; border-radius:18px; font-size:14px; font-weight:700;"
-        )
+        if not align_right:
+            avatar_color = "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:1 #14a89a)"
+            avatar.setStyleSheet(
+                "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:1 #14a89a);"
+                "color:#fff; border-radius:19px; font-size:15px; font-weight:800;"
+            )
+        else:
+            avatar.setStyleSheet(
+                "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #5a7a72,stop:1 #7a9a92);"
+                "color:#fff; border-radius:19px; font-size:15px; font-weight:800;"
+            )
 
         frame = QFrame()
         frame.setObjectName("chatBubbleFrame")
-        frame.setStyleSheet(
-            f"QFrame#chatBubbleFrame{{background:{bg}; border:1px solid {border}; border-radius:{self._bubble_radius}px;}}"
-        )
+        if align_right:
+            frame.setStyleSheet(
+                f"QFrame#chatBubbleFrame{{background:{bg}; border:1px solid {border};"
+                f"border-radius:{self._bubble_radius + 2}px; padding:2px;}}"
+            )
+        else:
+            frame.setStyleSheet(
+                f"QFrame#chatBubbleFrame{{background:{bg}; border:1px solid {border};"
+                f"border-radius:{self._bubble_radius + 2}px;}}"
+            )
         frame.setProperty("plainText", plain_text or "")
         frame.setProperty("bubbleTitle", (title or "") if show_title else "")
 
@@ -1063,7 +1122,13 @@ class AgentWindow(QMainWindow):
 
         # 时间戳
         ts = QLabel(time.strftime("%H:%M"))
-        ts.setStyleSheet(f"color:{title_color}; font-size:10px; margin-top:2px;")
+        if align_right:
+            ts.setStyleSheet(f"color:rgba(240,255,253,0.5); font-size:10px; margin-top:2px; font-weight:500;")
+        else:
+            if self._dark_mode:
+                ts.setStyleSheet(f"color:rgba(122,184,168,0.4); font-size:10px; margin-top:2px; font-weight:500;")
+            else:
+                ts.setStyleSheet(f"color:rgba(90,138,126,0.35); font-size:10px; margin-top:2px; font-weight:500;")
 
         if align_right:
             col = QVBoxLayout()
@@ -1093,9 +1158,18 @@ class AgentWindow(QMainWindow):
 
         frame = QFrame()
         frame.setObjectName("relatedItemFrame")
-        frame.setStyleSheet(
-            f"QFrame#relatedItemFrame{{background:#fef8f0; border:1px solid #e8ddd0; border-radius:{self._bubble_radius}px;}}"
-        )
+        if self._dark_mode:
+            frame.setStyleSheet(
+                f"QFrame#relatedItemFrame{{background:rgba(22,38,35,0.85); border:1px solid rgba(20,168,154,0.08);"
+                f"border-radius:{self._bubble_radius + 2}px;}}"
+                f"QFrame#relatedItemFrame:hover{{border-color:rgba(20,168,154,0.2);}}"
+            )
+        else:
+            frame.setStyleSheet(
+                f"QFrame#relatedItemFrame{{background:rgba(255,255,255,0.9); border:1px solid rgba(15,118,110,0.06);"
+                f"border-radius:{self._bubble_radius + 2}px;}}"
+                f"QFrame#relatedItemFrame:hover{{border-color:rgba(15,118,110,0.15);}}"
+            )
         frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         pad_m = self._bubble_pad_x
@@ -1105,17 +1179,26 @@ class AgentWindow(QMainWindow):
 
         header = QLabel(title or "（未命名）")
         header.setWordWrap(True)
-        header.setStyleSheet("font-weight:700; color:#3d3028; font-size:14px;")
+        if self._dark_mode:
+            header.setStyleSheet("font-weight:700; color:#c8e0d8; font-size:14px;")
+        else:
+            header.setStyleSheet("font-weight:700; color:#1a3330; font-size:14px;")
         header.setTextInteractionFlags(Qt.TextSelectableByMouse)
 
         meta = QLabel(time_text)
-        meta.setStyleSheet("color:#8a7b6a; font-size:11px; font-weight:600;")
+        if self._dark_mode:
+            meta.setStyleSheet("color:#5a9a8a; font-size:11px; font-weight:600;")
+        else:
+            meta.setStyleSheet("color:#7a9a8e; font-size:11px; font-weight:600;")
         meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
         meta.setVisible(bool(time_text))
 
         body = QLabel(summary)
         body.setWordWrap(True)
-        body.setStyleSheet("color:#24322f; font-size:13px;")
+        if self._dark_mode:
+            body.setStyleSheet("color:#9ab8a8; font-size:13px;")
+        else:
+            body.setStyleSheet("color:#4a6a62; font-size:13px;")
         body.setTextInteractionFlags(Qt.TextSelectableByMouse)
         body.setVisible(bool(summary))
 
@@ -1152,10 +1235,18 @@ class AgentWindow(QMainWindow):
         copy_btn.setObjectName("copyMemBtn")
         copy_btn.setCursor(Qt.PointingHandCursor)
         copy_btn.setFixedHeight(36)
-        copy_btn.setStyleSheet(
-            "QPushButton#copyMemBtn{background:#e0f7f4; color:#0f766e; border:1px solid #0f766e; border-radius:18px; padding:6px 16px; font-weight:600; font-size:12px;}"
-            "QPushButton#copyMemBtn:hover{background:#b3ece4;}"
-        )
+        if self._dark_mode:
+            copy_btn.setStyleSheet(
+                "QPushButton#copyMemBtn{background:rgba(15,50,44,0.9); color:#14a89a; border:1px solid rgba(20,168,154,0.15);"
+                "border-radius:18px; padding:6px 16px; font-weight:600; font-size:12px;}"
+                "QPushButton#copyMemBtn:hover{background:rgba(20,60,52,0.95); border-color:rgba(20,168,154,0.3);}"
+            )
+        else:
+            copy_btn.setStyleSheet(
+                "QPushButton#copyMemBtn{background:rgba(232,250,247,0.9); color:#0f766e; border:1px solid rgba(15,118,110,0.12);"
+                "border-radius:18px; padding:6px 16px; font-weight:600; font-size:12px;}"
+                "QPushButton#copyMemBtn:hover{background:rgba(210,245,238,0.95); border-color:rgba(15,118,110,0.25);}"
+            )
         mem_text = f"【{title}】\n{summary}\n\n时间: {time_text}"
         copy_btn.clicked.connect(lambda _, t=mem_text: QApplication.clipboard().setText(t))
         btn_row.addWidget(copy_btn)
@@ -1165,10 +1256,18 @@ class AgentWindow(QMainWindow):
             open_btn.setObjectName("openFileBtn")
             open_btn.setCursor(Qt.PointingHandCursor)
             open_btn.setFixedHeight(36)
-            open_btn.setStyleSheet(
-                "QPushButton#openFileBtn{background:#0f766e; color:#fff; border:none; border-radius:18px; padding:6px 16px; font-weight:600; font-size:12px;}"
-                "QPushButton#openFileBtn:hover{background:#11847c;}"
-            )
+            if self._dark_mode:
+                open_btn.setStyleSheet(
+                    "QPushButton#openFileBtn{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0f766e,stop:1 #14a89a);"
+                    "color:#fff; border:none; border-radius:18px; padding:6px 16px; font-weight:600; font-size:12px;}"
+                    "QPushButton#openFileBtn:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #14a89a,stop:1 #20d4b8);}"
+                )
+            else:
+                open_btn.setStyleSheet(
+                    "QPushButton#openFileBtn{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0d6b64,stop:1 #0f766e);"
+                    "color:#fff; border:none; border-radius:18px; padding:6px 16px; font-weight:600; font-size:12px;}"
+                    "QPushButton#openFileBtn:hover{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0a5c56,stop:1 #0d6b64);}"
+                )
             open_btn.clicked.connect(lambda _, fp=file_path: self._open_file(fp))
             btn_row.addWidget(open_btn)
 
@@ -1197,21 +1296,40 @@ class AgentWindow(QMainWindow):
 
     def _append_user(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
-        w = self._make_bubble(
-            align_right=True, title="", html_body=safe, plain_text=text,
-            bg="#0f766e", border="#0d6560", title_color="#c9f1e6", text_color="#f8fffd",
-            show_title=False, pad_x=self._bubble_user_pad_x,
-            body_font_px=self._bubble_user_body_font_px,
-        )
+        if self._dark_mode:
+            w = self._make_bubble(
+                align_right=True, title="", html_body=safe, plain_text=text,
+                bg="qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0f766e,stop:0.5 #14a89a,stop:1 #0d6b64)",
+                border="rgba(20,168,154,0.3)", title_color="#88dcc8", text_color="#f0fffd",
+                show_title=False, pad_x=self._bubble_user_pad_x,
+                body_font_px=self._bubble_user_body_font_px,
+            )
+        else:
+            w = self._make_bubble(
+                align_right=True, title="", html_body=safe, plain_text=text,
+                bg="qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:0.5 #0f766e,stop:1 #14a89a)",
+                border="rgba(15,118,110,0.15)", title_color="#88dcc8", text_color="#f0fffd",
+                show_title=False, pad_x=self._bubble_user_pad_x,
+                body_font_px=self._bubble_user_body_font_px,
+            )
         self._add_chat_widget(w)
 
     def _append_assistant(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
-        w = self._make_bubble(
-            align_right=False, title="暖暖", html_body=safe, plain_text=text,
-            bg="#f5f5f5", border="#d8d8d8", title_color="#666666", text_color="#333333",
-            show_title=True,
-        )
+        if self._dark_mode:
+            w = self._make_bubble(
+                align_right=False, title="暖暖", html_body=safe, plain_text=text,
+                bg="rgba(22,38,35,0.92)", border="rgba(20,168,154,0.08)",
+                title_color="#7ab8a8", text_color="#c8e0d8",
+                show_title=True,
+            )
+        else:
+            w = self._make_bubble(
+                align_right=False, title="暖暖", html_body=safe, plain_text=text,
+                bg="rgba(255,255,255,0.85)", border="rgba(15,118,110,0.06)",
+                title_color="#5a8a7e", text_color="#1a3330",
+                show_title=True,
+            )
         self._add_chat_widget(w)
 
     def _append_cards(self, items: list[dict[str, Any]]) -> None:
@@ -1233,7 +1351,10 @@ class AgentWindow(QMainWindow):
         v.setSpacing(6)
 
         title_lbl = QLabel("相关记忆")
-        title_lbl.setStyleSheet("color:#7a4b25; font-size:12px; font-weight:700;")
+        if self._dark_mode:
+            title_lbl.setStyleSheet("color:#e8c878; font-size:12px; font-weight:700; letter-spacing:0.05em;")
+        else:
+            title_lbl.setStyleSheet("color:#8a6a28; font-size:12px; font-weight:700; letter-spacing:0.05em;")
         title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         v.addWidget(title_lbl, 0, Qt.AlignLeft)
 
@@ -1272,33 +1393,26 @@ class AgentWindow(QMainWindow):
         # 跨线程信号连接
         self._health_result.connect(self._handle_health_result)
         self._chat_result_signal.connect(self._process_chat_result)
-        self._chat_error_signal.connect(lambda e: self._append_assistant(f"请求失败：{e}"))
+        self._chat_error_signal.connect(self._handle_chat_error)
         self._upload_result_signal.connect(self._process_upload_result)
-        self._upload_error_signal.connect(lambda e: self._append_assistant(f"上传失败：{e}"))
+        self._upload_error_signal.connect(lambda e: self._append_assistant(f"文件上传失败了：{e}"))
         self._voice_result_signal.connect(self._process_voice_result)
-        self._voice_error_signal.connect(lambda e: self._append_assistant(f"语音请求失败：{e}"))
+        self._voice_error_signal.connect(lambda e: self._append_assistant(f"语音处理失败了：{e}"))
         self._update_bar_signal.connect(self._show_update_bar)
 
-        # 健康检查
+        # 健康检查（智能退避：在线时 15s，断线后逐步增长到 60s）
+        self._health_fail_count = 0
+        self._health_base_interval = 15000  # 15 秒基础间隔
         self._health_timer = QTimer(self)
         self._health_timer.timeout.connect(self._check_health)
-        self._health_timer.start(10000)
+        self._health_timer.start(self._health_base_interval)
         self._check_health()
 
     def _check_health(self):
         if self._api is None:
             return
         def _do():
-            try:
-                import urllib.request, json as _json
-                url = f"{self._api.base_url}/api/health"
-                req = urllib.request.Request(url)
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    data = _json.loads(resp.read().decode("utf-8"))
-                    ok = data.get("status") == "ok"
-            except Exception as e:
-                print(f"[健康检查] {self._api.base_url} -> {type(e).__name__}: {e}")
-                ok = False
+            ok = self._api.health_fast()
             self._health_result.emit(ok)
         threading.Thread(target=_do, daemon=True).start()
 
@@ -1307,18 +1421,32 @@ class AgentWindow(QMainWindow):
         self._online = ok
         self._update_connection_status(ok)
         if ok and not was_online:
-            self._set_status("已恢复连接")
+            self._set_status("已恢复连接 ✓")
             self._offline_bar.setVisible(False)
+            self._health_fail_count = 0
+            # 恢复正常检查间隔
+            self._health_timer.setInterval(self._health_base_interval)
+        elif ok:
+            self._health_fail_count = 0
+            self._health_timer.setInterval(self._health_base_interval)
         elif not ok:
-            self._offline_bar.setVisible(True)
+            self._health_fail_count += 1
+            # 逐步增加检查间隔：15s → 30s → 45s → 60s（最大）
+            backoff = min(60000, self._health_base_interval * self._health_fail_count)
+            self._health_timer.setInterval(backoff)
+            if not was_online or self._health_fail_count == 1:
+                self._offline_bar.setVisible(True)
 
     def _update_connection_status(self, online: bool) -> None:
         if online:
             self._conn_status_label.setText("● 已连接")
-            self._conn_status_label.setStyleSheet("color: #0f766e; font-size: 12px;")
+            self._conn_status_label.setProperty("connected", True)
         else:
             self._conn_status_label.setText("○ 离线")
-            self._conn_status_label.setStyleSheet("color: #b6491d; font-size: 12px;")
+            self._conn_status_label.setProperty("connected", False)
+        # 刷新样式以响应属性变化
+        self._conn_status_label.style().unpolish(self._conn_status_label)
+        self._conn_status_label.style().polish(self._conn_status_label)
 
     # ---- 版本检查 ----
     def _init_version_check(self):
@@ -1359,6 +1487,9 @@ class AgentWindow(QMainWindow):
         text = (payload.text or "").strip()
         if not text:
             return
+        # 防止重复发送
+        if self._is_sending:
+            return
         self._append_user(text)
 
         if self._api is None:
@@ -1384,11 +1515,72 @@ class AgentWindow(QMainWindow):
             except Exception as e:
                 self._chat_error_signal.emit(str(e))
 
+        self._is_sending = True
+        self._show_typing_indicator()
         self._set_status("正在处理…")
         threading.Thread(target=_do, daemon=True).start()
         self.command_input.clear()
 
+    def _handle_chat_error(self, error: str) -> None:
+        """根据错误类型显示友好的提示"""
+        self._hide_typing_indicator()
+        self._is_sending = False
+        err_lower = error.lower()
+        if "超时" in error or "timeout" in err_lower:
+            self._append_assistant("服务器响应有点慢，可能是网络波动，稍等一下再试试？")
+        elif "连接" in error or "network" in err_lower or "connection" in err_lower:
+            self._append_assistant("网络好像断了，我正在帮你重连。等网络恢复后直接发送就行～")
+        elif "ssl" in err_lower or "certificate" in err_lower:
+            self._append_assistant("安全连接出了问题，请检查系统时间是否正确。")
+        elif "429" in error or "频繁" in error:
+            self._append_assistant("操作太频繁了，休息几秒再试吧～")
+        else:
+            self._append_assistant(f"出了点小问题：{error}")
+
+    def _show_typing_indicator(self) -> None:
+        """显示 '正在思考...' 打字指示器"""
+        self._hide_typing_indicator()
+        w = QWidget()
+        w.setProperty("bubbleAlign", "left")
+        row = QHBoxLayout(w)
+        row.setContentsMargins(0, 2, 0, 2)
+        row.setSpacing(4)
+
+        avatar = QLabel("暖")
+        avatar.setFixedSize(38, 38)
+        avatar.setAlignment(Qt.AlignCenter)
+        avatar.setStyleSheet(
+            "background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:1 #14a89a);"
+            "color:#fff; border-radius:19px; font-size:15px; font-weight:800;"
+        )
+
+        dots = QLabel("● ● ●")
+        dots.setObjectName("typingDots")
+        if self._dark_mode:
+            dots.setStyleSheet("color:rgba(122,184,168,0.5); font-size:14px; padding:12px 18px; font-weight:700; letter-spacing:4px;")
+        else:
+            dots.setStyleSheet("color:rgba(90,138,126,0.4); font-size:14px; padding:12px 18px; font-weight:700; letter-spacing:4px;")
+
+        row.addWidget(avatar, 0, Qt.AlignTop)
+        row.addWidget(dots)
+        row.addStretch(1)
+
+        idx = max(0, self._chat_layout.count() - 1)
+        self._chat_layout.insertWidget(idx, w)
+        self._typing_widget = w
+        QTimer.singleShot(10, self._scroll_chat_to_bottom)
+
+    def _hide_typing_indicator(self) -> None:
+        """移除打字指示器"""
+        if self._typing_widget is not None:
+            self._chat_layout.removeWidget(self._typing_widget)
+            self._typing_widget.setParent(None)
+            self._typing_widget.deleteLater()
+            self._typing_widget = None
+
     def _process_chat_result(self, result: dict) -> None:
+        self._hide_typing_indicator()
+        self._is_sending = False
         text = result.get("text", "")
         if text:
             self._append_assistant(text)
@@ -1443,7 +1635,7 @@ class AgentWindow(QMainWindow):
         if result.get("success"):
             self._append_assistant(result.get("message", "文件已保存。"))
         elif result.get("error"):
-            self._append_assistant(f"上传失败：{result['error']}")
+            self._append_assistant(f"文件上传失败：{result['error']}")
         self._set_status("准备就绪")
 
     def _choose_files(self):
@@ -1533,17 +1725,20 @@ class AgentWindow(QMainWindow):
         if hasattr(self, "voice_btn"):
             if listening:
                 self.voice_btn.setText("■")
-                self.voice_btn.setStyleSheet(
-                    "QPushButton#voiceBtn{background:#ffe6d6; color:#b6491d; border:1px solid #f2b89a; border-radius:21px; font-weight:800; font-size:18px;}"
-                )
+                self.voice_btn.setProperty("voiceState", "recording")
             else:
                 self.voice_btn.setText("🎤")
-                self.voice_btn.setStyleSheet("")
+                self.voice_btn.setProperty("voiceState", "idle")
+            # 刷新样式以响应属性变化
+            self.voice_btn.style().unpolish(self.voice_btn)
+            self.voice_btn.style().polish(self.voice_btn)
 
     def _handle_dialogue_stopped(self) -> None:
         if hasattr(self, "voice_btn"):
             self.voice_btn.setText("🎤")
-            self.voice_btn.setStyleSheet("")
+            self.voice_btn.setProperty("voiceState", "idle")
+            self.voice_btn.style().unpolish(self.voice_btn)
+            self.voice_btn.style().polish(self.voice_btn)
         self._set_status("语音对话已结束")
 
     def _cleanup_voice_worker(self) -> None:
@@ -1563,7 +1758,7 @@ class AgentWindow(QMainWindow):
     def _show_stats(self):
         if self._api is None:
             return
-        dlg = StatsDialog(self._api, self)
+        dlg = StatsDialog(self._api, self, dark_mode=self._dark_mode)
         dlg.exec_()
 
     # ---- 右键菜单 ----
@@ -1584,6 +1779,15 @@ class AgentWindow(QMainWindow):
 
     def _clear_query(self) -> None:
         self.command_input.clear()
+        self._hide_typing_indicator()
+        self._is_sending = False
+        # 使用跟踪列表清空，比遍历 layout 更高效
+        for w in self._chat_bubbles:
+            self._chat_layout.removeWidget(w)
+            w.setParent(None)
+            w.deleteLater()
+        self._chat_bubbles.clear()
+        # 也清理可能遗漏的子控件
         for i in range(self._chat_layout.count() - 2, -1, -1):
             item = self._chat_layout.takeAt(i)
             if item is None:
@@ -1632,90 +1836,432 @@ class AgentWindow(QMainWindow):
     def _light_theme_css(self, bfs: int) -> str:
         return f"""
             * {{ outline: none; }}
-            QWidget {{ font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif; font-size:17px; color:#24322f; }}
-            QMainWindow {{ background:#f3eee7; }}
-            QWidget#titleBar {{ background:#fefcf8; border-bottom:1px solid #e8ddd0; }}
-            QPushButton#titleBtn {{ background:transparent; border:none; color:#5c736d; font-size:14px; }}
-            QPushButton#titleBtn:hover {{ background:#e8ddd0; }}
-            QWidget#headerWidget {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #fefcf8,stop:1 #f8f2e8); border:none; border-bottom:1px solid #e8ddd0; border-bottom-left-radius:17px; border-bottom-right-radius:17px; }}
-            QLabel#headerBadge {{ background:rgba(255,250,240,0.92); color:#9a6a2b; border:1px solid #edd9bd; border-radius:17px; padding:5px 12px; font-size:11px; font-weight:700; letter-spacing:0.16em; }}
-            QLabel#headerTitle {{ font-size:34px; font-weight:800; color:#173834; }}
-            QLabel#headerSubtitle {{ font-size:18px; color:#35524d; font-weight:600; }}
-            QWidget#updateBar {{ background:#fff7eb; border-bottom:1px solid #ecd8b8; }}
-            QWidget#offlineBar {{ background:#fff3ee; border-bottom:1px solid #f0c0b5; }}
-            QScrollArea#chatView {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fffcf7,stop:1 #f8f4ee); border:1px solid #e8ddd0; border-radius:17px; padding:2px; font-size:17px; }}
+            QWidget {{
+                font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","SF Pro Display",sans-serif;
+                font-size:15px; color:#1a2726;
+            }}
+            QMainWindow {{
+                background:qlineargradient(x1:0,y1:0,x2:0.3,y2:1,stop:0 #f0f5f3,stop:0.5 #e8f0ec,stop:1 #dfe8e4);
+            }}
+
+            /* ---- 标题栏 ---- */
+            QWidget#titleBar {{
+                background:rgba(255,255,255,0.72);
+                border-bottom:1px solid rgba(15,118,110,0.08);
+            }}
+            QPushButton#titleBtn {{
+                background:transparent; border:none; color:#6b8a84; font-size:13px;
+                border-radius:8px; padding:4px 8px;
+            }}
+            QPushButton#titleBtn:hover {{ background:rgba(15,118,110,0.08); color:#0f766e; }}
+
+            /* ---- 头部 ---- */
+            QWidget#headerWidget {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0.3,
+                    stop:0 rgba(255,255,255,0.85), stop:0.4 rgba(236,250,247,0.9),
+                    stop:0.7 rgba(220,245,240,0.85), stop:1 rgba(200,238,232,0.8));
+                border:none; border-bottom:1px solid rgba(15,118,110,0.06);
+                border-bottom-left-radius:24px; border-bottom-right-radius:24px;
+            }}
+            QLabel#headerBadge {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #fff9f0,stop:1 #fff3e0);
+                color:#b8860b; border:1px solid rgba(218,165,32,0.25);
+                border-radius:20px; padding:4px 14px; font-size:10px;
+                font-weight:700; letter-spacing:0.18em;
+            }}
+            QLabel#headerTitle {{
+                font-size:36px; font-weight:900;
+                color:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0a5c56,stop:1 #0f766e);
+                letter-spacing:-0.02em;
+            }}
+            QLabel#headerSubtitle {{
+                font-size:15px; color:#4a7068; font-weight:500; letter-spacing:0.01em;
+            }}
+
+            /* ---- 通知条 ---- */
+            QWidget#updateBar {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #fffbf0,stop:1 #fff7e0);
+                border-bottom:1px solid rgba(218,165,32,0.15);
+            }}
+            QWidget#offlineBar {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #fff5f2,stop:1 #ffece6);
+                border-bottom:1px solid rgba(182,73,29,0.12);
+            }}
+
+            /* ---- 聊天区域 ---- */
+            QScrollArea#chatView {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 #f8fcfb, stop:0.3 #f4faf8, stop:0.7 #f0f7f4, stop:1 #ecf4f0);
+                border:1px solid rgba(15,118,110,0.06);
+                border-radius:20px; padding:4px; font-size:15px;
+            }}
             QScrollArea#chatView QWidget#chatInner {{ background:transparent; }}
             QScrollArea#chatView QWidget {{ background:transparent; }}
-            QWidget#inputWidget {{ background:#fefcf8; border:1px solid #e8ddd0; border-top:2px solid #dccbb8; border-radius:17px; }}
-            QLineEdit {{ border:none; background:transparent; border-radius:17px; padding:12px 14px; font-size:17px; color:#24322f; }}
-            QLineEdit::placeholder {{ color:#b49d7b; }}
-            QPushButton {{ border:none; font-weight:600; font-size:15px; }}
-            QPushButton:disabled {{ color:#d1d5db !important; }}
-            QPushButton#sendBtn {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #145f5a,stop:1 #0f766e); color:#fff; border-radius:24px; font-size:20px; font-weight:800; }}
-            QPushButton#sendBtn:hover {{ background:#0d6b64; }}
-            QPushButton#sendBtn:disabled {{ background:#d9ddd9 !important; }}
-            QPushButton#voiceBtn {{ background:#e0f7f4; color:#0f766e; border:1px solid #0f766e; border-radius:21px; font-size:20px; }}
-            QPushButton#voiceBtn:hover {{ background:#b3ece4; }}
-            QPushButton#attachBtn {{ background:#e0f7f4; color:#0f766e; border:1px solid #b3ece4; border-radius:21px; font-size:18px; }}
-            QPushButton#attachBtn:hover {{ background:#b3ece4; }}
-            QPushButton#headerThemeBtn, QPushButton#headerStatsBtn {{ background:#fff7eb; border:1px solid #ecd8b8; border-radius:18px; font-size:16px; }}
-            QPushButton#headerThemeBtn:hover, QPushButton#headerStatsBtn:hover {{ background:#fffdf7; }}
-            QPushButton#headerClearBtn:hover {{ color:#a63d2a; }}
-            QStatusBar {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fefcf8,stop:1 #f8f2e8); border:none; border-top:1px solid #e8ddd0; border-top-left-radius:17px; border-top-right-radius:17px; color:#7a6b5a; font-size:12px; padding:4px 16px; margin:0 1px; }}
+
+            /* ---- 输入区域 ---- */
+            QWidget#inputWidget {{
+                background:rgba(255,255,255,0.88);
+                border:1px solid rgba(15,118,110,0.08);
+                border-top:1px solid rgba(15,118,110,0.05);
+                border-radius:20px;
+            }}
+            QLineEdit {{
+                border:none; background:transparent; border-radius:20px;
+                padding:12px 16px; font-size:15px; color:#1a2726;
+            }}
+            QLineEdit::placeholder {{ color:#9ab5ae; }}
+            QLineEdit:focus {{ background:rgba(15,118,110,0.02); }}
+
+            /* ---- 按钮通用 ---- */
+            QPushButton {{ border:none; font-weight:600; font-size:14px; }}
+            QPushButton:disabled {{ color:#c5d0cc !important; }}
+
+            /* ---- 发送按钮 ---- */
+            QPushButton#sendBtn {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:0.5 #0f766e,stop:1 #14a89a);
+                color:#fff; border-radius:26px; font-size:20px; font-weight:800;
+                padding:2px 0 0 2px;
+            }}
+            QPushButton#sendBtn:hover {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0a5c56,stop:0.5 #0d6b64,stop:1 #11968a);
+            }}
+            QPushButton#sendBtn:pressed {{ background:#0a5c56; }}
+            QPushButton#sendBtn:disabled {{ background:#c8d8d4 !important; }}
+
+            /* ---- 语音按钮 ---- */
+            QPushButton#voiceBtn {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8faf7,stop:1 #d5f5f0);
+                color:#0f766e; border:1.5px solid rgba(15,118,110,0.15);
+                border-radius:22px; font-size:19px;
+            }}
+            QPushButton#voiceBtn:hover {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #d5f5f0,stop:1 #b8ece4);
+                border-color:rgba(15,118,110,0.3);
+            }}
+            QPushButton#voiceBtn[voiceState="recording"] {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ffe6d6,stop:1 #fdd5c0);
+                color:#b6491d; border:1.5px solid rgba(182,73,29,0.25);
+                font-weight:800; font-size:18px;
+            }}
+
+            /* ---- 附件按钮 ---- */
+            QPushButton#attachBtn {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #f0f7f6,stop:1 #e4f2ef);
+                color:#5a8a82; border:1.5px solid rgba(15,118,110,0.1);
+                border-radius:22px; font-size:17px;
+            }}
+            QPushButton#attachBtn:hover {{
+                color:#0f766e; border-color:rgba(15,118,110,0.25);
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e0f5f2,stop:1 #d0efe9);
+            }}
+
+            /* ---- 头部按钮 ---- */
+            QPushButton#headerThemeBtn, QPushButton#headerStatsBtn {{
+                background:rgba(255,255,255,0.7); border:1px solid rgba(15,118,110,0.08);
+                border-radius:20px; font-size:15px;
+            }}
+            QPushButton#headerThemeBtn:hover, QPushButton#headerStatsBtn:hover {{
+                background:rgba(255,255,255,0.95); border-color:rgba(15,118,110,0.15);
+            }}
+            QPushButton#headerClearBtn {{
+                background:rgba(255,247,235,0.8); border:1px solid rgba(236,216,184,0.5);
+                border-radius:20px; color:#8a6a38; font-size:13px; font-weight:600;
+                padding:7px 16px;
+            }}
+            QPushButton#headerClearBtn:hover {{
+                color:#b84a2a; border-color:rgba(215,183,133,0.7);
+                background:rgba(255,253,247,0.95);
+            }}
+
+            /* ---- 状态栏 ---- */
+            QStatusBar {{
+                background:rgba(255,255,255,0.6);
+                border:none; border-top:1px solid rgba(15,118,110,0.05);
+                border-top-left-radius:20px; border-top-right-radius:20px;
+                color:#7a9a92; font-size:11px; padding:5px 20px; margin:0 2px;
+            }}
             QStatusBar::item {{ border:none; }}
-            QProgressBar {{ border:none; border-radius:17px; background:#e8ddd0; height:3px; max-width:160px; }}
-            QProgressBar::chunk {{ background:#145f5a; border-radius:3px; }}
-            QScrollBar:vertical {{ background:transparent; width:6px; }}
-            QScrollBar::handle:vertical {{ background:#d5cec5; border-radius:3px; min-height:36px; margin:2px; }}
-            QScrollBar::handle:vertical:hover {{ background:#b8afa3; }}
+            QProgressBar {{
+                border:none; border-radius:6px;
+                background:rgba(15,118,110,0.06); height:4px; max-width:180px;
+            }}
+            QProgressBar::chunk {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0f766e,stop:1 #14a89a); border-radius:4px; }}
+
+            /* ---- 滚动条 ---- */
+            QScrollBar:vertical {{ background:transparent; width:5px; margin:4px 2px; }}
+            QScrollBar::handle:vertical {{
+                background:rgba(15,118,110,0.12); border-radius:4px;
+                min-height:40px; margin:2px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background:rgba(15,118,110,0.25); }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background:transparent; }}
+
             QTextBrowser#chatBubbleBody {{ font-size:{bfs}px; }}
+
+            /* ---- 附件 badge ---- */
+            QLabel#attachBadge {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #e8faf7,stop:1 #d5f5f0);
+                color:#0f766e; border:1px solid rgba(15,118,110,0.15);
+                border-radius:14px; padding:3px 10px; font-size:11px; font-weight:700;
+            }}
+            QPushButton#deleteAttachBtn {{
+                background:rgba(182,73,29,0.08); color:#b6491d;
+                border:none; border-radius:13px; font-size:14px; font-weight:700;
+            }}
+            QPushButton#deleteAttachBtn:hover {{ background:rgba(182,73,29,0.15); }}
+
+            /* ---- 右键菜单 ---- */
+            QMenu {{
+                background:rgba(255,255,255,0.95);
+                border:1px solid rgba(15,118,110,0.1);
+                border-radius:12px;
+                padding:6px 0px;
+                font-size:13px;
+            }}
+            QMenu::item {{
+                padding:8px 28px 8px 18px;
+                color:#1a3330;
+                border-radius:8px;
+                margin:2px 6px;
+            }}
+            QMenu::item:selected {{
+                background:rgba(15,118,110,0.08);
+                color:#0f766e;
+            }}
+            QMenu::separator {{
+                height:1px;
+                background:rgba(15,118,110,0.06);
+                margin:4px 12px;
+            }}
+
+            /* ---- 标题栏内部元素 ---- */
+            QLabel#titleBarLabel {{ font-size:15px; font-weight:800; color:#0a5c56; letter-spacing:0.02em; }}
+            QLabel#connStatusLabel {{ color:#b6491d; font-size:11px; font-weight:600; }}
+            QLabel#connStatusLabel[connected="true"] {{ color:#0f766e; }}
+
+            /* ---- 通知条内部元素 ---- */
+            QLabel#updateLabel {{ color:#8a6a28; font-size:13px; font-weight:600; }}
+            QPushButton#updateCloseBtn {{ background:transparent; border:none; color:#8a6a28; font-size:14px; border-radius:8px; padding:2px; }}
+            QPushButton#updateCloseBtn:hover {{ color:#b6491d; background:rgba(182,73,29,0.06); }}
+            QLabel#offlineLabel {{ color:#b6491d; font-size:13px; font-weight:600; }}
+            QLabel#pendingLabel {{ color:#8a6a28; font-size:13px; font-weight:600; }}
         """
 
     def _dark_theme_css(self, bfs: int) -> str:
         return f"""
             * {{ outline: none; }}
-            QWidget {{ font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC",sans-serif; font-size:17px; color:#d4d4d4; }}
-            QMainWindow {{ background:#1a2e2c; }}
-            QWidget#titleBar {{ background:#0d3b36; border-bottom:1px solid #1a4a44; }}
-            QPushButton#titleBtn {{ background:transparent; border:none; color:#8aaaa4; font-size:14px; }}
-            QPushButton#titleBtn:hover {{ background:#1a4a44; }}
-            QWidget#headerWidget {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0d3b36,stop:1 #143d38); border:none; border-bottom:1px solid #1a4a44; border-bottom-left-radius:17px; border-bottom-right-radius:17px; }}
-            QLabel#headerBadge {{ background:rgba(20,61,56,0.9); color:#d4a259; border:1px solid #3a6a5a; border-radius:17px; padding:5px 12px; font-size:11px; font-weight:700; letter-spacing:0.16em; }}
-            QLabel#headerTitle {{ font-size:34px; font-weight:800; color:#a8e6cf; }}
-            QLabel#headerSubtitle {{ font-size:18px; color:#7fb8a8; font-weight:600; }}
-            QWidget#updateBar {{ background:#2a3a20; border-bottom:1px solid #4a5a30; }}
-            QWidget#offlineBar {{ background:#3a2020; border-bottom:1px solid #5a3030; }}
-            QScrollArea#chatView {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #1a2e2c,stop:1 #0d2622); border:1px solid #1a4a44; border-radius:17px; padding:2px; font-size:17px; }}
+            QWidget {{
+                font-family:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","SF Pro Display",sans-serif;
+                font-size:15px; color:#d8e8e4;
+            }}
+            QMainWindow {{
+                background:qlineargradient(x1:0,y1:0,x2:0.3,y2:1,
+                    stop:0 #0f1f1d, stop:0.5 #122825, stop:1 #0a1a18);
+            }}
+
+            /* ---- 标题栏 ---- */
+            QWidget#titleBar {{
+                background:rgba(13,38,34,0.92);
+                border-bottom:1px solid rgba(20,168,154,0.08);
+            }}
+            QPushButton#titleBtn {{
+                background:transparent; border:none; color:#6a9a92; font-size:13px;
+                border-radius:8px; padding:4px 8px;
+            }}
+            QPushButton#titleBtn:hover {{ background:rgba(20,168,154,0.1); color:#14a89a; }}
+
+            /* ---- 头部 ---- */
+            QWidget#headerWidget {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0.3,
+                    stop:0 rgba(13,38,34,0.95), stop:0.4 rgba(18,50,46,0.95),
+                    stop:0.7 rgba(20,58,52,0.92), stop:1 rgba(15,45,40,0.9));
+                border:none; border-bottom:1px solid rgba(20,168,154,0.06);
+                border-bottom-left-radius:24px; border-bottom-right-radius:24px;
+            }}
+            QLabel#headerBadge {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(20,61,56,0.9),stop:1 rgba(30,70,60,0.9));
+                color:#e8c878; border:1px solid rgba(212,162,89,0.2);
+                border-radius:20px; padding:4px 14px; font-size:10px;
+                font-weight:700; letter-spacing:0.18em;
+            }}
+            QLabel#headerTitle {{
+                font-size:36px; font-weight:900;
+                color:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #6ee7c0,stop:1 #a8f0dc);
+                letter-spacing:-0.02em;
+            }}
+            QLabel#headerSubtitle {{
+                font-size:15px; color:#7ab8a8; font-weight:500; letter-spacing:0.01em;
+            }}
+
+            /* ---- 通知条 ---- */
+            QWidget#updateBar {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(42,58,32,0.9),stop:1 rgba(50,65,35,0.9));
+                border-bottom:1px solid rgba(74,90,48,0.3);
+            }}
+            QWidget#offlineBar {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(58,32,32,0.9),stop:1 rgba(65,35,35,0.9));
+                border-bottom:1px solid rgba(90,48,48,0.3);
+            }}
+
+            /* ---- 聊天区域 ---- */
+            QScrollArea#chatView {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,
+                    stop:0 #162623, stop:0.3 #132220, stop:0.7 #101e1c, stop:1 #0d1a18);
+                border:1px solid rgba(20,168,154,0.06);
+                border-radius:20px; padding:4px; font-size:15px;
+            }}
             QScrollArea#chatView QWidget#chatInner {{ background:transparent; }}
             QScrollArea#chatView QWidget {{ background:transparent; }}
-            QWidget#inputWidget {{ background:#0d3b36; border:1px solid #1a4a44; border-top:2px solid #2a5a50; border-radius:17px; }}
-            QLineEdit {{ border:none; background:transparent; border-radius:17px; padding:12px 14px; font-size:17px; color:#d4d4d4; }}
-            QLineEdit::placeholder {{ color:#5a7a70; }}
-            QPushButton {{ border:none; font-weight:600; font-size:15px; }}
-            QPushButton:disabled {{ color:#4a4a4a !important; }}
-            QPushButton#sendBtn {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0f766e,stop:1 #14a89a); color:#fff; border-radius:24px; font-size:20px; font-weight:800; }}
-            QPushButton#sendBtn:hover {{ background:#14a89a; }}
-            QPushButton#sendBtn:disabled {{ background:#2a3a38 !important; }}
-            QPushButton#voiceBtn {{ background:#0d3b36; color:#14a89a; border:1px solid #1a4a44; border-radius:21px; font-size:20px; }}
-            QPushButton#voiceBtn:hover {{ background:#1a4a44; }}
-            QPushButton#attachBtn {{ background:#0d3b36; color:#14a89a; border:1px solid #1a4a44; border-radius:21px; font-size:18px; }}
-            QPushButton#attachBtn:hover {{ background:#1a4a44; }}
-            QPushButton#headerThemeBtn, QPushButton#headerStatsBtn {{ background:#0d3b36; border:1px solid #1a4a44; border-radius:18px; font-size:16px; }}
-            QPushButton#headerThemeBtn:hover, QPushButton#headerStatsBtn:hover {{ background:#1a4a44; }}
-            QPushButton#headerClearBtn {{ background:#0d3b36; border:1px solid #1a4a44; color:#d4a259; }}
-            QPushButton#headerClearBtn:hover {{ color:#e8b85a; }}
-            QStatusBar {{ background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #0d3b36,stop:1 #0a2e2a); border:none; border-top:1px solid #1a4a44; border-top-left-radius:17px; border-top-right-radius:17px; color:#7fb8a8; font-size:12px; padding:4px 16px; margin:0 1px; }}
+
+            /* ---- 输入区域 ---- */
+            QWidget#inputWidget {{
+                background:rgba(15,40,36,0.92);
+                border:1px solid rgba(20,168,154,0.08);
+                border-top:1px solid rgba(20,168,154,0.04);
+                border-radius:20px;
+            }}
+            QLineEdit {{
+                border:none; background:transparent; border-radius:20px;
+                padding:12px 16px; font-size:15px; color:#d8e8e4;
+            }}
+            QLineEdit::placeholder {{ color:#4a7a70; }}
+            QLineEdit:focus {{ background:rgba(20,168,154,0.03); }}
+
+            /* ---- 按钮通用 ---- */
+            QPushButton {{ border:none; font-weight:600; font-size:14px; }}
+            QPushButton:disabled {{ color:#3a5a52 !important; }}
+
+            /* ---- 发送按钮 ---- */
+            QPushButton#sendBtn {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0f766e,stop:0.5 #14a89a,stop:1 #20d4b8);
+                color:#fff; border-radius:26px; font-size:20px; font-weight:800;
+                padding:2px 0 0 2px;
+            }}
+            QPushButton#sendBtn:hover {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #14a89a,stop:0.5 #20d4b8,stop:1 #28e8c8);
+            }}
+            QPushButton#sendBtn:pressed {{ background:#0d6b64; }}
+            QPushButton#sendBtn:disabled {{ background:#1a3a35 !important; }}
+
+            /* ---- 语音按钮 ---- */
+            QPushButton#voiceBtn {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(15,40,36,0.95),stop:1 rgba(20,50,44,0.95));
+                color:#14a89a; border:1.5px solid rgba(20,168,154,0.15);
+                border-radius:22px; font-size:19px;
+            }}
+            QPushButton#voiceBtn:hover {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(20,50,44,0.95),stop:1 rgba(25,60,52,0.95));
+                border-color:rgba(20,168,154,0.3);
+            }}
+            QPushButton#voiceBtn[voiceState="recording"] {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(100,40,30,0.9),stop:1 rgba(80,30,20,0.9));
+                color:#ff9a7a; border:1.5px solid rgba(255,120,80,0.3);
+                font-weight:800; font-size:18px;
+            }}
+
+            /* ---- 附件按钮 ---- */
+            QPushButton#attachBtn {{
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(15,40,36,0.95),stop:1 rgba(20,48,42,0.95));
+                color:#7ab8a8; border:1.5px solid rgba(20,168,154,0.1);
+                border-radius:22px; font-size:17px;
+            }}
+            QPushButton#attachBtn:hover {{
+                color:#14a89a; border-color:rgba(20,168,154,0.25);
+                background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 rgba(20,50,44,0.95),stop:1 rgba(25,58,50,0.95));
+            }}
+
+            /* ---- 头部按钮 ---- */
+            QPushButton#headerThemeBtn, QPushButton#headerStatsBtn {{
+                background:rgba(15,40,36,0.8); border:1px solid rgba(20,168,154,0.08);
+                border-radius:20px; font-size:15px;
+            }}
+            QPushButton#headerThemeBtn:hover, QPushButton#headerStatsBtn:hover {{
+                background:rgba(20,50,44,0.95); border-color:rgba(20,168,154,0.15);
+            }}
+            QPushButton#headerClearBtn {{
+                background:rgba(15,40,36,0.8); border:1px solid rgba(20,168,154,0.08);
+                color:#e8c878; border-radius:20px; font-size:13px; font-weight:600;
+                padding:7px 16px;
+            }}
+            QPushButton#headerClearBtn:hover {{
+                color:#f0d888; border-color:rgba(212,162,89,0.2);
+                background:rgba(20,50,44,0.95);
+            }}
+
+            /* ---- 状态栏 ---- */
+            QStatusBar {{
+                background:rgba(12,32,28,0.9);
+                border:none; border-top:1px solid rgba(20,168,154,0.05);
+                border-top-left-radius:20px; border-top-right-radius:20px;
+                color:#5a9a8a; font-size:11px; padding:5px 20px; margin:0 2px;
+            }}
             QStatusBar::item {{ border:none; }}
-            QProgressBar {{ border:none; border-radius:17px; background:#1a4a44; height:3px; max-width:160px; }}
-            QProgressBar::chunk {{ background:#14a89a; border-radius:3px; }}
-            QScrollBar:vertical {{ background:transparent; width:6px; }}
-            QScrollBar::handle:vertical {{ background:#2a4a44; border-radius:3px; min-height:36px; margin:2px; }}
-            QScrollBar::handle:vertical:hover {{ background:#3a5a50; }}
+            QProgressBar {{
+                border:none; border-radius:6px;
+                background:rgba(20,168,154,0.08); height:4px; max-width:180px;
+            }}
+            QProgressBar::chunk {{ background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #0f766e,stop:1 #14a89a); border-radius:4px; }}
+
+            /* ---- 滚动条 ---- */
+            QScrollBar:vertical {{ background:transparent; width:5px; margin:4px 2px; }}
+            QScrollBar::handle:vertical {{
+                background:rgba(20,168,154,0.12); border-radius:4px;
+                min-height:40px; margin:2px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background:rgba(20,168,154,0.25); }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height:0; }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background:transparent; }}
+
             QTextBrowser#chatBubbleBody {{ font-size:{bfs}px; }}
+
+            /* ---- 附件 badge ---- */
+            QLabel#attachBadge {{
+                background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 rgba(15,50,44,0.9),stop:1 rgba(20,58,50,0.9));
+                color:#14a89a; border:1px solid rgba(20,168,154,0.15);
+                border-radius:14px; padding:3px 10px; font-size:11px; font-weight:700;
+            }}
+            QPushButton#deleteAttachBtn {{
+                background:rgba(182,73,29,0.12); color:#e87a5a;
+                border:none; border-radius:13px; font-size:14px; font-weight:700;
+            }}
+            QPushButton#deleteAttachBtn:hover {{ background:rgba(182,73,29,0.22); }}
+
+            /* ---- 右键菜单 ---- */
+            QMenu {{
+                background:rgba(18,38,34,0.97);
+                border:1px solid rgba(20,168,154,0.1);
+                border-radius:12px;
+                padding:6px 0px;
+                font-size:13px;
+            }}
+            QMenu::item {{
+                padding:8px 28px 8px 18px;
+                color:#c8e0d8;
+                border-radius:8px;
+                margin:2px 6px;
+            }}
+            QMenu::item:selected {{
+                background:rgba(20,168,154,0.12);
+                color:#14a89a;
+            }}
+            QMenu::separator {{
+                height:1px;
+                background:rgba(20,168,154,0.08);
+                margin:4px 12px;
+            }}
+
+            /* ---- 标题栏内部元素 ---- */
+            QLabel#titleBarLabel {{ font-size:15px; font-weight:800; color:#6ee7c0; letter-spacing:0.02em; }}
+            QLabel#connStatusLabel {{ color:#e87a5a; font-size:11px; font-weight:600; }}
+            QLabel#connStatusLabel[connected="true"] {{ color:#14a89a; }}
+
+            /* ---- 通知条内部元素 ---- */
+            QLabel#updateLabel {{ color:#e8c878; font-size:13px; font-weight:600; }}
+            QPushButton#updateCloseBtn {{ background:transparent; border:none; color:#e8c878; font-size:14px; border-radius:8px; padding:2px; }}
+            QPushButton#updateCloseBtn:hover {{ color:#f0d888; background:rgba(232,200,120,0.1); }}
+            QLabel#offlineLabel {{ color:#e87a5a; font-size:13px; font-weight:600; }}
+            QLabel#pendingLabel {{ color:#e8c878; font-size:13px; font-weight:600; }}
         """
 
 

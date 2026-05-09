@@ -31,7 +31,7 @@ class CommandInput(QWidget):
         self._edit = QLineEdit()
         self._edit.setPlaceholderText("输入一句话，或拖入图片 / 文件后添加说明…")
         self._edit.setClearButtonEnabled(True)
-        self._edit.setStyleSheet("font-size: 17px;")
+        self._edit.setObjectName("commandLineEdit")
         self._edit.returnPressed.connect(self.submit)
 
         completer = QCompleter(["/search ", "/搜 ", "帮我记住 ", "帮我查找 "], self._edit)
