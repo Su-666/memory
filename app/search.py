@@ -19,46 +19,42 @@ _STOP_WORDS = {
 
 _STOP_WORDS_SORTED = sorted(_STOP_WORDS, key=len, reverse=True)
 
+_TRIGGER_KEYWORDS = frozenset(("生日", "电话", "号码", "地址", "微信", "账号", "密码", "身份证", "银行卡"))
+_KEEP_SINGLE_CHARS = frozenset(("日", "月", "年", "号"))
+
 
 def _tokenize(query: str) -> list[str]:
     q = (query or "").strip()
     if not q:
         return []
-    # 先取英文/数字 token；中文用更细粒度拆分，否则容易整句变成一个 token 导致命中率极差
     tokens = re.findall(r"[A-Za-z0-9_+\-]+", q)
 
-    # 关键触发词：直接加入（提升“生日/电话/地址”等常见记忆可检索性）
-    for kw in ("生日", "电话", "号码", "地址", "微信", "账号", "密码", "身份证", "银行卡"):
+    for kw in _TRIGGER_KEYWORDS:
         if kw in q:
             tokens.append(kw)
 
-    # 中文片段：做 2-4 字 ngram（受控数量），用于“问句→关键词”场景
-    for seg in re.findall(r"[\u4e00-\u9fff]{2,30}", q):
+    for seg in re.findall(r"[一-鿿]{2,30}", q):
         seg = seg.strip()
         if not seg:
             continue
-        # 先去掉高频停用词片段
         for sw in _STOP_WORDS_SORTED:
             if sw and sw in seg:
                 seg = seg.replace(sw, "")
         seg = seg.strip()
         if len(seg) < 2:
             continue
-        ngrams: list[str] = []
-        for n in (2, 3, 4):
+        seen_ng: set[str] = set()
+        for n in (2, 3):
             if len(seg) < n:
                 continue
             for i in range(0, len(seg) - n + 1):
-                ngrams.append(seg[i : i + n])
-        # 去重并限制数量，避免爆炸
-        seen_ng: set[str] = set()
-        for t in ngrams:
-            if t in _STOP_WORDS:
-                continue
-            if t not in seen_ng:
-                tokens.append(t)
-                seen_ng.add(t)
-            if len(seen_ng) >= 20:
+                t = seg[i : i + n]
+                if t not in _STOP_WORDS and t not in seen_ng:
+                    tokens.append(t)
+                    seen_ng.add(t)
+                if len(seen_ng) >= 15:
+                    break
+            if len(seen_ng) >= 15:
                 break
     cleaned: list[str] = []
     seen: set[str] = set()
@@ -66,8 +62,7 @@ def _tokenize(query: str) -> list[str]:
         t = t.strip()
         if not t or t in _STOP_WORDS:
             continue
-        # 中文单字通常信息量低，丢掉；保留“日/月/年”等在生日场景有用的单字
-        if len(t) == 1 and t not in {"日", "月", "年", "号"}:
+        if len(t) == 1 and t not in _KEEP_SINGLE_CHARS:
             continue
         if t not in seen:
             cleaned.append(t)
@@ -76,13 +71,11 @@ def _tokenize(query: str) -> list[str]:
 
 
 def _fts_query(tokens: list[str]) -> str:
-    # 用 OR 提升命中率；加 * 做前缀匹配（更像“智能搜索”）
     if not tokens:
         return ""
     parts: list[str] = []
     for t in tokens:
         t = t.replace('"', "")
-        # 过短词不加前缀星号，避免过度扩展
         if len(t) >= 2:
             parts.append(f'{t}*')
         else:
@@ -93,14 +86,12 @@ def _fts_query(tokens: list[str]) -> str:
 def _score(text: str, query: str) -> int:
     if not query:
         return 0
-    lowered = (text or "").lower()
+    lowered = text.lower()
     q = query.lower().strip()
     score = 0
-    if q and q in lowered:
+    if q in lowered:
         score += 12
-    # 简单分词：英文/数字/中文短词
-    tokens = re.findall(r"[A-Za-z0-9_+\-]+|[\u4e00-\u9fff]{1,8}", q)
-    for token in tokens[:6]:
+    for token in re.findall(r"[A-Za-z0-9_+\-]+|[一-鿿]{1,8}", q)[:6]:
         t = token.lower()
         if t and t in lowered:
             score += 3 + len(t) + lowered.count(t)
@@ -129,7 +120,6 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
     tokens = _tokenize(q)
     fts_q = _fts_query(tokens) or q
 
-    # 优先使用 FTS5（更接近“智能检索”的感觉），找不到再回退 LIKE
     try:
         fts_rows = conn.execute(
             """
@@ -163,14 +153,13 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
         logger.debug("FTS 搜索失败，回退到 LIKE: %s", e)
 
     if not results:
-        # LIKE 回退：对每个 token 做 OR，提高”问句”场景命中率
         like_terms = tokens or [q]
         wheres: list[str] = []
         params: list[str] = []
         for t in like_terms[:3]:
             t = t.replace(chr(92), chr(92)*2).replace(chr(37), chr(92)+chr(37)).replace(chr(95), chr(92)+chr(95))
-            wheres.append("(title LIKE ? OR summary LIKE ?)")
-            params.extend([f"%{t}%", f"%{t}%"])
+            wheres.append("(title LIKE ? OR summary LIKE ? OR body LIKE ?)")
+            params.extend([f"%{t}%", f"%{t}%", f"%{t}%"])
         where_sql = " OR ".join(wheres) if wheres else "(title LIKE ? OR summary LIKE ? OR body LIKE ?)"
         if not params:
             params = [f"%{q}%", f"%{q}%", f"%{q}%"]
@@ -200,7 +189,6 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
     if sort_mode == "recent":
         results.sort(key=lambda x: (x.get("time", ""), x.get("entity_id", 0)), reverse=True)
     elif sort_mode == "frequent":
-        # join usage_stats
         freq_map: dict[tuple[str, int], int] = {}
         for row in conn.execute("SELECT entity_type, entity_id, open_count FROM usage_stats").fetchall():
             freq_map[(row["entity_type"], int(row["entity_id"]))] = int(row["open_count"])
@@ -211,16 +199,12 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
         for item in results:
             item["open_count"] = freq_map.get((item["entity_type"], item["entity_id"]), 0)
     else:
-        # FTS bm25 返回负值（越小越相关），LIKE 返回非负值（越大越相关）
-        # 统一为 normalized_score（越大越相关）
         for item in results:
             score = item.get("score", 0)
             if isinstance(score, float) and score < 0:
-                # BM25 负分：取反得到正分
                 item["_nscore"] = -score
             else:
                 item["_nscore"] = float(score)
         results.sort(key=lambda x: (x.get("_nscore", 0), x.get("time", "")), reverse=True)
 
     return results[:limit]
-

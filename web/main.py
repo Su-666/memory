@@ -46,12 +46,10 @@ try:
     from app import db as app_db
     from app import repo as app_repo
     from app import search as app_search
-    from app.answer import answer as app_answer
-    from app.intent import call_planning_model
     from app.vault import ensure_vault_root
     from app.vision import understand_image
     from app.intent_chat import (
-        build_memory_metadata,
+        build_memory_metadata_fast,
         handle_intent,
         confirm_save_action,
     )
@@ -182,6 +180,8 @@ class SimpleCache:
                 del self.cache[k]
 
 response_cache = SimpleCache()
+_storage_size_cache: dict[str, Any] = {"size": 0, "time": 0}
+_STORAGE_CACHE_TTL = 120  # 2 分钟缓存存储大小
 
 class RateLimiter:
     def __init__(self, max_requests=20, window_seconds=60):
@@ -217,6 +217,12 @@ class RateLimiter:
             return False
 
 rate_limiter = RateLimiter(max_requests=20, window_seconds=60)
+
+_ALLOWED_UPLOAD_EXTENSIONS = frozenset({
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg',
+    '.pdf', '.doc', '.docx', '.txt', '.md', '.csv', '.json',
+    '.mp3', '.wav', '.m4a', '.ogg',
+})
 
 def _safe_get_json():
     data = request.get_json(silent=True)
@@ -363,7 +369,7 @@ def confirm_save():
 
     reply, final_text = confirm_save_action(text, to_save)
     if final_text:
-        title, summary = build_memory_metadata(final_text)
+        title, summary = build_memory_metadata_fast(final_text)
         mid = app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
         if not mid:
             return jsonify({'type': 'assistant', 'text': reply, 'warning': '保存可能未成功'})
@@ -394,7 +400,7 @@ def save_memory():
     conn = get_db_conn()
     vault_root = get_vault_root()
     try:
-        title, summary = build_memory_metadata(text)
+        title, summary = build_memory_metadata_fast(text)
         app_repo.remember_text_smart(conn, text=text, vault_root=vault_root, title=title, summary=summary)
         response_cache.invalidate("recent_memories")
         response_cache.invalidate("stats")
@@ -418,18 +424,13 @@ def upload_file():
     conn = get_db_conn()
     vault_root = get_vault_root()
     paths = []
-    ALLOWED_UPLOAD_EXTENSIONS = {
-        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg',
-        '.pdf', '.doc', '.docx', '.txt', '.md', '.csv', '.json',
-        '.mp3', '.wav', '.m4a', '.ogg',
-    }
     for f in files:
         safe_name = f.filename.replace('\\', '/').replace('..', '').strip()
         safe_name = re.sub(r'[^\w\.\-一-鿿㐀-䶿]', '_', safe_name)
         if not safe_name:
             safe_name = 'unnamed_file'
         ext = Path(safe_name).suffix.lower()
-        if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
             continue
         temp_path = vault_root / "temp" / safe_name
         temp_path.parent.mkdir(parents=True, exist_ok=True)
@@ -585,7 +586,7 @@ def voice_dialogue():
         if pending_save_text:
             reply, final_text = confirm_save_action(user_text, pending_save_text)
             if final_text:
-                title, summary = build_memory_metadata(final_text)
+                title, summary = build_memory_metadata_fast(final_text)
                 app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
             resp = {'user_text': user_text, 'type': 'assistant', 'text': reply, 'saved': True}
             try:
@@ -677,9 +678,7 @@ def get_image():
             return Response('文件不存在', status=404)
         ext = p.suffix.lower()
         mime_type = IMAGE_MIME_TYPES.get(ext, 'image/jpeg')
-        with open(p, 'rb') as f:
-            data = f.read()
-        response = Response(data, mimetype=mime_type)
+        response = send_from_directory(str(p.parent), p.name, mimetype=mime_type)
         response.headers['Cache-Control'] = 'private, max-age=3600'
         response.headers['Access-Control-Allow-Origin'] = '*'
         return response
@@ -783,16 +782,21 @@ def get_stats():
                 pass
         top_tags = sorted(tag_counter.items(), key=lambda x: -x[1])[:10]
 
-        # 存储信息
-        vault_root = get_vault_root()
-        storage_size = 0
-        if vault_root.exists():
-            for dirpath, _dirnames, filenames in os.walk(str(vault_root)):
-                for fn in filenames:
-                    try:
-                        storage_size += os.path.getsize(os.path.join(dirpath, fn))
-                    except OSError:
-                        pass
+        # 存储信息（带缓存，避免每次遍历目录）
+        now_ts = time.time()
+        if now_ts - _storage_size_cache["time"] > _STORAGE_CACHE_TTL:
+            vault_root = get_vault_root()
+            storage_size = 0
+            if vault_root.exists():
+                for dirpath, _dirnames, filenames in os.walk(str(vault_root)):
+                    for fn in filenames:
+                        try:
+                            storage_size += os.path.getsize(os.path.join(dirpath, fn))
+                        except OSError:
+                            pass
+            _storage_size_cache["size"] = storage_size
+            _storage_size_cache["time"] = now_ts
+        storage_size = _storage_size_cache["size"]
 
         stats = {
             'total_memories': total_memories,

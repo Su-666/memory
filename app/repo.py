@@ -302,9 +302,10 @@ def list_recent(conn: sqlite3.Connection, *, limit: int = 30) -> list[dict[str, 
         (limit,),
     ).fetchall():
         file_path = str(row["file_path"] or "").strip()
-        tag = "文本"
         if file_path:
-            tag = "附件" if Path(file_path).suffix else "文件"
+            tag = "附件" if "." in file_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] else "文件"
+        else:
+            tag = "文本"
         items.append(
             {
                 "entity_type": "memory",
@@ -328,9 +329,9 @@ def get_total_memories(conn: sqlite3.Connection) -> int:
 def get_all_tags(conn: sqlite3.Connection, limit: int = 2000) -> list[str]:
     """从 extra_json 中提取标签（限制扫描行数防止全表扫描）"""
     tag_set: set[str] = set()
-    for row in conn.execute("SELECT extra_json FROM memories ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall():
+    for row in conn.execute("SELECT extra_json FROM memories WHERE extra_json LIKE '%tags%' ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall():
         try:
-            extra = json.loads(row["extra_json"] or "{}")
+            extra = json.loads(row["extra_json"])
             tags = extra.get("tags") or []
             for t in tags:
                 if t and isinstance(t, str):
@@ -352,49 +353,88 @@ def search_advanced(conn: sqlite3.Connection, conditions: dict[str, Any]) -> lis
 
     date_from = (conditions.get("date_from") or "").strip()
     date_to = (conditions.get("date_to") or "").strip()
+    date_filter_active = bool(date_from or date_to)
 
-    # 先用 FTS 搜索
     if query:
+        # FTS 搜索 + 日期过滤（在 SQL 层完成，避免 Python 循环）
+        if date_filter_active:
+            from .search import _tokenize, _fts_query
+            tokens = _tokenize(query)
+            fts_q = _fts_query(tokens) or query
+            wheres: list[str] = ["memories_fts MATCH ?"]
+            params: list[Any] = [fts_q]
+            if date_from:
+                wheres.append("m.updated_at >= ?")
+                params.append(date_from)
+            if date_to:
+                wheres.append("m.updated_at <= ?")
+                params.append(date_to + " 23:59:59")
+            where_sql = " AND ".join(wheres)
+            params.append(limit * 2)
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT m.id, m.title, m.summary, m.body, m.file_path, m.updated_at,
+                           bm25(memories_fts) AS rank
+                    FROM memories_fts
+                    JOIN memories m ON m.id = memories_fts.rowid
+                    WHERE {where_sql}
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    tuple(params),
+                ).fetchall()
+                results = [
+                    {
+                        "entity_type": "memory",
+                        "entity_id": int(row["id"]),
+                        "title": row["title"],
+                        "time": row["updated_at"],
+                        "summary": (row["summary"] or row["body"] or "")[:60],
+                        "file_path": str(row["file_path"] or "").strip(),
+                        "score": float(row["rank"]),
+                    }
+                    for row in rows
+                ]
+                return results[:limit]
+            except Exception:
+                pass
         results = app_search.search(conn, query=query, sort_mode="relevant", limit=limit * 2)
-    else:
-        # 无关键词时用 SQL 日期过滤
-        sql = "SELECT id, title, summary, body, file_path, updated_at FROM memories"
-        params: list[str] = []
-        wheres: list[str] = []
-        if date_from:
-            wheres.append("updated_at >= ?")
-            params.append(date_from)
-        if date_to:
-            wheres.append("updated_at <= ?")
-            params.append(date_to + " 23:59:59")
-        if wheres:
-            sql += " WHERE " + " AND ".join(wheres)
-        sql += " ORDER BY updated_at DESC LIMIT ?"
-        params.append(str(limit * 2))
-
-        results = [
-            {
-                "entity_type": "memory",
-                "entity_id": int(row["id"]),
-                "title": row["title"],
-                "time": row["updated_at"],
-                "summary": (row["summary"] or row["body"] or "")[:60],
-                "file_path": str(row["file_path"] or "").strip(),
-            }
-            for row in conn.execute(sql, params).fetchall()
-        ]
+        if date_filter_active:
+            filtered = []
+            for r in results:
+                t = str(r.get("time", ""))
+                if date_from and t < date_from:
+                    continue
+                if date_to and t > date_to + " 23:59:59":
+                    continue
+                filtered.append(r)
+            results = filtered
         return results[:limit]
 
-    # 有关键词时，对 FTS 结果做日期过滤
-    if date_from or date_to:
-        filtered = []
-        for r in results:
-            t = str(r.get("time", ""))
-            if date_from and t < date_from:
-                continue
-            if date_to and t > date_to + " 23:59:59":
-                continue
-            filtered.append(r)
-        results = filtered
+    sql = "SELECT id, title, summary, body, file_path, updated_at FROM memories"
+    params_list: list[str] = []
+    wheres_list: list[str] = []
+    if date_from:
+        wheres_list.append("updated_at >= ?")
+        params_list.append(date_from)
+    if date_to:
+        wheres_list.append("updated_at <= ?")
+        params_list.append(date_to + " 23:59:59")
+    if wheres_list:
+        sql += " WHERE " + " AND ".join(wheres_list)
+    sql += " ORDER BY updated_at DESC LIMIT ?"
+    params_list.append(str(limit * 2))
 
+    results = [
+        {
+            "entity_type": "memory",
+            "entity_id": int(row["id"]),
+            "title": row["title"],
+            "time": row["updated_at"],
+            "summary": (row["summary"] or row["body"] or "")[:60],
+            "file_path": str(row["file_path"] or "").strip(),
+        }
+        for row in conn.execute(sql, params_list).fetchall()
+    ]
     return results[:limit]

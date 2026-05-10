@@ -60,7 +60,7 @@ def call_llm_chat(
             top_p=0.92,
             max_tokens=max_tokens,
             tools=tools,
-            timeout=90,
+            timeout=60,
             retries=2,
         )
     except Exception as e:
@@ -87,7 +87,7 @@ def call_llm_chat(
                 temperature=0.7,
                 top_p=0.9,
                 max_tokens=max_tokens,
-                timeout=90,
+                timeout=60,
                 retries=2,
             )
         except Exception as e:

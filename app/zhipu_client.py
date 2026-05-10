@@ -64,6 +64,8 @@ def call_chat(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "Connection": "keep-alive",
+        "Accept-Encoding": "gzip, deflate",
     }
 
     last_exc: Exception | None = None

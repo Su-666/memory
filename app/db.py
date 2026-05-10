@@ -16,6 +16,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
     conn.execute("PRAGMA busy_timeout = 3000;")
+    conn.execute("PRAGMA cache_size = -8000;")      # 8MB 页缓存（默认仅 2MB）
+    conn.execute("PRAGMA temp_store = MEMORY;")      # 临时表存内存
+    conn.execute("PRAGMA mmap_size = 67108864;")     # 64MB mmap，加速大库读取
+    conn.execute("PRAGMA optimize;")                 # 启动时自动优化统计信息
     return conn
 
 
