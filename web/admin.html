@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>管理后台 - 暖暖记忆助手</title>
+<style>
+/* ===== Reset ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+a{text-decoration:none;color:inherit}
+button{cursor:pointer;border:none;outline:none;font-family:inherit}
+input,select{font-family:inherit;outline:none}
+
+/* ===== Variables ===== */
+:root{
+  --primary:#667eea;--primary-dark:#5a6fd6;--primary-light:#eef2ff;
+  --accent:#764ba2;--danger:#e74c3c;--danger-light:#fff0f0;
+  --success:#27ae60;--warn:#f39c12;
+  --bg:#f0f2f5;--card:#fff;--border:#e8e8e8;
+  --text:#1a1a2e;--text2:#555;--text3:#888;--text4:#bbb;
+  --sidebar-w:240px;--topbar-h:64px;
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.06);--shadow-lg:0 8px 30px rgba(0,0,0,.12);
+}
+
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ===== Login ===== */
+.login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:20px}
+.login-card{background:#fff;border-radius:20px;padding:48px 40px;width:400px;max-width:100%;box-shadow:0 25px 60px rgba(0,0,0,.2);text-align:center;animation:slideUp .4s ease}
+@keyframes slideUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.login-logo{width:72px;height:72px;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:20px;margin:0 auto 24px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;box-shadow:0 8px 24px rgba(102,126,234,.3)}
+.login-title{font-size:24px;font-weight:700;margin-bottom:4px}
+.login-sub{color:var(--text3);font-size:14px;margin-bottom:36px}
+.form-group{text-align:left;margin-bottom:20px}
+.form-group label{display:block;font-size:13px;font-weight:600;color:var(--text2);margin-bottom:8px}
+.form-input{width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:15px;transition:border-color .2s}
+.form-input:focus{border-color:var(--primary)}
+.login-btn{width:100%;padding:14px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border-radius:var(--radius-sm);font-size:16px;font-weight:600;transition:opacity .2s,transform .1s;margin-top:8px}
+.login-btn:hover{opacity:.92}
+.login-btn:active{transform:scale(.98)}
+.login-error{background:var(--danger-light);color:var(--danger);padding:12px 16px;border-radius:var(--radius-sm);font-size:13px;margin-bottom:16px;display:none;animation:shake .3s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+
+/* ===== Layout ===== */
+.app{display:none}
+.sidebar{position:fixed;left:0;top:0;bottom:0;width:var(--sidebar-w);background:linear-gradient(180deg,#1a1a2e 0%,#16213e 100%);color:#fff;z-index:50;display:flex;flex-direction:column;transition:transform .3s}
+.sidebar-brand{padding:20px 20px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:12px}
+.brand-icon{width:42px;height:42px;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.brand-info .brand-name{font-size:15px;font-weight:700}
+.brand-info .brand-desc{font-size:11px;color:rgba(255,255,255,.45);margin-top:2px}
+.sidebar-nav{flex:1;padding:12px;overflow-y:auto}
+.nav-section{font-size:11px;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:1px;padding:16px 12px 6px;font-weight:600}
+.nav-item{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--radius-sm);color:rgba(255,255,255,.65);font-size:13px;font-weight:500;transition:all .15s;cursor:pointer;margin-bottom:2px}
+.nav-item:hover{background:rgba(255,255,255,.08);color:#fff}
+.nav-item.active{background:rgba(102,126,234,.25);color:#fff}
+.nav-item svg{width:18px;height:18px;flex-shrink:0;opacity:.7}
+.nav-item.active svg{opacity:1}
+.sidebar-footer{padding:16px 20px;border-top:1px solid rgba(255,255,255,.06);font-size:12px;color:rgba(255,255,255,.3)}
+
+.main{margin-left:var(--sidebar-w);min-height:100vh}
+.topbar{height:var(--topbar-h);background:var(--card);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:40}
+.topbar-title{font-size:20px;font-weight:700}
+.topbar-right{display:flex;align-items:center;gap:16px}
+.topbar-time{font-size:13px;color:var(--text3)}
+.topbar-btn{padding:8px 16px;background:var(--danger-light);color:var(--danger);border-radius:var(--radius-sm);font-size:13px;font-weight:600;transition:background .15s}
+.topbar-btn:hover{background:#ffe0e0}
+
+.content{padding:24px 28px}
+
+/* ===== Cards ===== */
+.stat-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+.stat-card{background:var(--card);border-radius:var(--radius);padding:22px 24px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px}
+.stat-card:nth-child(1)::before{background:linear-gradient(90deg,#667eea,#764ba2)}
+.stat-card:nth-child(2)::before{background:linear-gradient(90deg,#f093fb,#f5576c)}
+.stat-card:nth-child(3)::before{background:linear-gradient(90deg,#4facfe,#00f2fe)}
+.stat-card:nth-child(4)::before{background:linear-gradient(90deg,#43e97b,#38f9d7)}
+.stat-label{font-size:13px;color:var(--text3);margin-bottom:8px;font-weight:500}
+.stat-value{font-size:30px;font-weight:700}
+.stat-card:nth-child(1) .stat-value{color:#667eea}
+.stat-card:nth-child(2) .stat-value{color:#f5576c}
+.stat-card:nth-child(3) .stat-value{color:#4facfe}
+.stat-card:nth-child(4) .stat-value{color:#43e97b}
+
+/* ===== Panels ===== */
+.content-grid{display:grid;grid-template-columns:1fr 280px;gap:20px}
+.panel{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden}
+.panel-head{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.panel-head h2{font-size:15px;font-weight:600}
+.panel-body{padding:16px 20px}
+
+/* ===== Search ===== */
+.toolbar{display:flex;gap:10px;margin-bottom:16px}
+.toolbar input{flex:1;padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:13px;transition:border-color .2s}
+.toolbar input:focus{border-color:var(--primary)}
+.toolbar select{padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:#fff;cursor:pointer}
+
+/* ===== Table ===== */
+.tbl-wrap{overflow-x:auto;max-height:calc(100vh - 340px);overflow-y:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{background:#f8f9fa;padding:10px 14px;text-align:left;font-weight:600;color:var(--text2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--border);position:sticky;top:0;z-index:1}
+tbody td{padding:10px 14px;border-bottom:1px solid #f5f5f5;vertical-align:middle}
+tbody tr{transition:background .1s;cursor:pointer}
+tbody tr:hover{background:var(--primary-light)}
+.col-id{color:var(--text4);font-family:"SF Mono",Monaco,monospace;font-size:12px;width:50px}
+.col-title{font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.col-body{color:var(--text3);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.col-time{color:var(--text3);font-size:12px;white-space:nowrap;width:130px}
+.tag{display:inline-block;padding:2px 8px;background:var(--primary-light);color:var(--primary);border-radius:4px;font-size:11px;font-weight:500;margin:1px 2px}
+.no-data{text-align:center;padding:50px 20px;color:var(--text4);font-size:14px}
+
+/* ===== Pagination ===== */
+.pager{display:flex;align-items:center;justify-content:space-between;padding:12px 0;margin-top:4px}
+.pager-info{font-size:13px;color:var(--text3)}
+.pager-btns{display:flex;gap:4px}
+.pager-btns button{min-width:34px;height:34px;border:1px solid var(--border);background:#fff;border-radius:6px;font-size:13px;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.pager-btns button:hover{border-color:var(--primary);color:var(--primary)}
+.pager-btns button.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.pager-btns button:disabled{opacity:.35;cursor:not-allowed}
+
+/* ===== Tags panel ===== */
+.tag-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5}
+.tag-item:last-child{border:none}
+.tag-name{font-size:13px;font-weight:500}
+.tag-count{background:var(--primary);color:#fff;padding:2px 10px;border-radius:12px;font-size:12px;font-weight:600}
+
+/* ===== Modal ===== */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:100;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.modal-bg.show{display:flex}
+.modal{background:#fff;border-radius:16px;width:640px;max-width:92vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg);animation:modalIn .25s ease}
+@keyframes modalIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+.modal-head{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+.modal-head h3{font-size:18px;font-weight:700}
+.modal-close{width:34px;height:34px;background:#f0f0f0;border-radius:8px;font-size:18px;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.modal-close:hover{background:#e0e0e0}
+.modal-content{padding:24px;overflow-y:auto;flex:1}
+.field{margin-bottom:18px}
+.field-label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
+.field-value{font-size:14px;line-height:1.7;color:var(--text2);word-break:break-all}
+.field-value pre{white-space:pre-wrap;background:#f8f9fa;padding:14px;border-radius:var(--radius-sm);font-size:13px;font-family:"SF Mono",Monaco,monospace;line-height:1.6;max-height:300px;overflow-y:auto}
+.modal-actions{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:space-between;flex-shrink:0}
+.btn-sm{padding:8px 18px;border-radius:6px;font-size:13px;font-weight:600;transition:all .15s}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{opacity:.85}
+.btn-ghost{background:#f0f0f0;color:var(--text2)}
+.btn-ghost:hover{background:#e5e5e5}
+
+/* ===== Toast ===== */
+.toast{position:fixed;top:20px;right:20px;padding:14px 20px;border-radius:var(--radius-sm);color:#fff;font-size:14px;font-weight:500;z-index:200;animation:toastIn .3s ease;box-shadow:var(--shadow-lg)}
+.toast.success{background:var(--success)}
+.toast.error{background:var(--danger)}
+.toast.info{background:var(--primary)}
+@keyframes toastIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+
+/* ===== Responsive ===== */
+@media(max-width:1200px){.stat-cards{grid-template-columns:repeat(2,1fr)}.content-grid{grid-template-columns:1fr}}
+@media(max-width:768px){
+  .sidebar{transform:translateX(-100%)}
+  .sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .stat-cards{grid-template-columns:1fr}
+  .content{padding:16px}
+  .topbar{padding:0 16px}
+  .menu-btn{display:flex!important}
+}
+.menu-btn{display:none;width:36px;height:36px;background:#f0f0f0;border-radius:8px;align-items:center;justify-content:center;font-size:20px}
+</style>
+</head>
+<body>
+
+<!-- ===== Login Page ===== -->
+<div class="login-page" id="loginPage">
+  <div class="login-card">
+    <div class="login-logo">N</div>
+    <div class="login-title">暖暖记忆助手</div>
+    <div class="login-sub">管理后台</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="form-group">
+      <label>管理员密码</label>
+      <input type="password" class="form-input" id="pwdInput" placeholder="请输入密码" autofocus>
+    </div>
+    <button class="login-btn" id="loginBtn">登 录</button>
+  </div>
+</div>
+
+<!-- ===== App ===== -->
+<div class="app" id="app">
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">N</div>
+      <div class="brand-info">
+        <div class="brand-name">暖暖助手</div>
+        <div class="brand-desc">管理后台</div>
+      </div>
+    </div>
+    <div class="sidebar-nav">
+      <div class="nav-section">主菜单</div>
+      <div class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        数据概览
+      </div>
+      <div class="nav-item" data-page="memories" onclick="switchPage('memories')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        记忆管理
+      </div>
+      <div class="nav-section">工具</div>
+      <div class="nav-item" onclick="doExport()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        导出 JSON
+      </div>
+      <div class="nav-item" onclick="doBackup()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        下载数据库
+      </div>
+    </div>
+    <div class="sidebar-footer">暖暖记忆助手 v6.0</div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div class="menu-btn" onclick="document.getElementById('sidebar').classList.toggle('open')">&#9776;</div>
+        <div class="topbar-title" id="pageTitle">数据概览</div>
+      </div>
+      <div class="topbar-right">
+        <div class="topbar-time" id="clock"></div>
+        <button class="topbar-btn" onclick="doLogout()">退出</button>
+      </div>
+    </div>
+
+    <div class="content">
+      <!-- Dashboard -->
+      <div id="page-dashboard">
+        <div class="stat-cards" id="statCards"></div>
+        <div class="content-grid">
+          <div class="panel">
+            <div class="panel-head">
+              <h2>全部记忆</h2>
+              <span style="font-size:13px;color:var(--text3)" id="countLabel"></span>
+            </div>
+            <div class="panel-body">
+              <div class="toolbar">
+                <input type="text" id="searchDash" placeholder="搜索标题、内容、标签..." oninput="renderAll()">
+                <select id="sortDash" onchange="renderAll()">
+                  <option value="newest">最新优先</option>
+                  <option value="oldest">最早优先</option>
+                  <option value="title">按标题</option>
+                </select>
+              </div>
+              <div class="tbl-wrap">
+                <table><thead><tr>
+                  <th>ID</th><th>标题</th><th>摘要</th><th>标签</th><th>更新时间</th>
+                </tr></thead><tbody id="tbodyDash"></tbody></table>
+              </div>
+              <div class="pager">
+                <div class="pager-info" id="pagerInfoDash"></div>
+                <div class="pager-btns" id="pagerBtnsDash"></div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <div class="panel" style="margin-bottom:16px">
+              <div class="panel-head"><h2>热门标签</h2></div>
+              <div class="panel-body" id="topTags"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>快捷操作</h2></div>
+              <div class="panel-body">
+                <div class="nav-item" onclick="doExport()" style="margin:0;padding:10px 0;border:none">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span style="font-size:13px">导出全部记忆</span>
+                </div>
+                <div class="nav-item" onclick="doBackup()" style="margin:0;padding:10px 0;border:none">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+                  <span style="font-size:13px">下载数据库备份</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Memories page -->
+      <div id="page-memories" style="display:none">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>记忆管理</h2>
+            <span style="font-size:13px;color:var(--text3)" id="countLabel2"></span>
+          </div>
+          <div class="panel-body">
+            <div class="toolbar">
+              <input type="text" id="searchMem" placeholder="搜索标题、内容、标签..." oninput="renderAll()">
+              <select id="sortMem" onchange="renderAll()">
+                <option value="newest">最新优先</option>
+                <option value="oldest">最早优先</option>
+                <option value="title">按标题</option>
+              </select>
+            </div>
+            <div class="tbl-wrap" style="max-height:calc(100vh - 280px)">
+              <table><thead><tr>
+                <th>ID</th><th>标题</th><th>内容预览</th><th>标签</th><th>创建时间</th><th>更新时间</th>
+              </tr></thead><tbody id="tbodyMem"></tbody></table>
+            </div>
+            <div class="pager">
+              <div class="pager-info" id="pagerInfoMem"></div>
+              <div class="pager-btns" id="pagerBtnsMem"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-bg" id="modalBg" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="modalTitle">记忆详情</h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-content" id="modalBody"></div>
+    <div class="modal-actions">
+      <div><button class="btn-sm btn-danger" id="modalDelete">删除此记忆</button></div>
+      <div><button class="btn-sm btn-ghost" onclick="closeModal()">关闭</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+var API_KEY = '';
+var DATA = [];
+var PAGE_SIZE = 20;
+var curPageDash = 1, curPageMem = 1;
+var currentModalId = null;
+
+// ===== Helpers =====
+function $(id){ return document.getElementById(id) }
+function fmt(t){ return t ? t.replace('T',' ').slice(0,16) : '-' }
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+function toast(msg, type){
+  var el = document.createElement('div');
+  el.className = 'toast ' + (type||'info');
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(function(){ el.style.opacity='0'; el.style.transition='opacity .3s'; }, 2200);
+  setTimeout(function(){ el.remove() }, 2500);
+}
+
+// ===== Clock =====
+function updateClock(){
+  var now = new Date();
+  $('clock').textContent = now.toLocaleDateString('zh-CN') + ' ' + now.toLocaleTimeString('zh-CN');
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ===== Login =====
+$('loginBtn').onclick = doLogin;
+$('pwdInput').onkeydown = function(e){ if(e.key==='Enter') doLogin() };
+
+function doLogin(){
+  var pwd = $('pwdInput').value.trim();
+  if(!pwd){ showLoginError('请输入密码'); return }
+  $('loginBtn').textContent = '登录中...';
+  $('loginBtn').disabled = true;
+
+  fetch('/api/admin/verify?key=' + encodeURIComponent(pwd))
+    .then(function(r){ return r.json() })
+    .then(function(d){
+      if(d.ok){
+        API_KEY = pwd;
+        $('loginPage').style.display = 'none';
+        $('app').style.display = 'block';
+        loadData();
+      } else {
+        showLoginError(d.error || '密码错误');
+      }
+    })
+    .catch(function(){ showLoginError('连接服务器失败') })
+    .finally(function(){ $('loginBtn').textContent='登 录'; $('loginBtn').disabled=false })
+}
+
+function showLoginError(msg){
+  var el = $('loginError');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.animation = 'none';
+  el.offsetHeight;
+  el.style.animation = 'shake .3s';
+}
+
+function doLogout(){
+  API_KEY = '';
+  DATA = [];
+  $('app').style.display = 'none';
+  $('loginPage').style.display = 'flex';
+  $('pwdInput').value = '';
+  $('loginError').style.display = 'none';
+}
+
+// ===== Data Loading =====
+function loadData(){
+  toast('加载数据中...', 'info');
+  fetch('/api/admin/data?key=' + encodeURIComponent(API_KEY))
+    .then(function(r){
+      if(!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json()
+    })
+    .then(function(d){
+      DATA = d.memories || [];
+      renderStats(d);
+      renderTopTags(d.top_tags || []);
+      renderAll();
+      toast('数据加载完成', 'success');
+    })
+    .catch(function(e){
+      toast('加载失败: ' + e.message, 'error');
+    })
+}
+
+// ===== Stats =====
+function renderStats(d){
+  var lastUpdate = d.memories && d.memories.length ? fmt(d.memories[0].updated_at) : '无';
+  $('statCards').innerHTML =
+    card('总记忆数', d.total || 0) +
+    card('文件记忆', d.total_files || 0) +
+    card('标签数量', d.total_tags || 0) +
+    card('最近更新', lastUpdate);
+}
+function card(label, value){
+  return '<div class="stat-card"><div class="stat-label">'+esc(label)+'</div><div class="stat-value">'+esc(String(value))+'</div></div>';
+}
+
+// ===== Top Tags =====
+function renderTopTags(tags){
+  if(!tags.length){ $('topTags').innerHTML='<div style="color:var(--text4);text-align:center;padding:16px">暂无标签</div>'; return }
+  $('topTags').innerHTML = tags.map(function(t){
+    return '<div class="tag-item"><span class="tag-name">'+esc(t[0])+'</span><span class="tag-count">'+t[1]+'</span></div>';
+  }).join('');
+}
+
+// ===== Filtering & Sorting =====
+function getFiltered(searchId, sortId){
+  var q = ($(searchId)||{}).value || '';
+  var sort = ($(sortId)||{}).value || 'newest';
+  q = q.toLowerCase();
+  var d = DATA.filter(function(m){
+    if(!q) return true;
+    var s = (m.title + ' ' + m.summary + ' ' + m.body + ' ' + (m.tags||[]).join(' ')).toLowerCase();
+    return s.indexOf(q) !== -1;
+  });
+  if(sort==='newest') d.sort(function(a,b){ return b.updated_at > a.updated_at ? 1 : -1 });
+  else if(sort==='oldest') d.sort(function(a,b){ return a.updated_at > b.updated_at ? 1 : -1 });
+  else if(sort==='title') d.sort(function(a,b){ return (a.title||'').localeCompare(b.title||'') });
+  return d;
+}
+
+// ===== Render =====
+function renderAll(){
+  renderTable('searchDash','sortDash','tbodyDash','pagerInfoDash','pagerBtnsDash',curPageDash,false,'countLabel',function(p){curPageDash=p});
+  renderTable('searchMem','sortMem','tbodyMem','pagerInfoMem','pagerBtnsMem',curPageMem,true,'countLabel2',function(p){curPageMem=p});
+}
+
+function renderTable(searchId,sortId,tbodyId,infoId,btnsId,page,isFull,countId,setPageFn){
+  var data = getFiltered(searchId, sortId);
+  var total = data.length;
+  var pages = Math.ceil(total / PAGE_SIZE) || 1;
+  if(page > pages) page = pages;
+  setPageFn(page);
+  var start = (page-1) * PAGE_SIZE;
+  var pageData = data.slice(start, start + PAGE_SIZE);
+
+  if(countId){
+    var q = ($(searchId)||{}).value || '';
+    $(countId).textContent = (q ? '筛选结果: ' : '') + total + ' 条';
+  }
+
+  var tbody = $(tbodyId);
+  if(!pageData.length){
+    tbody.innerHTML = '<tr><td colspan="6" class="no-data">没有找到匹配的记忆</td></tr>';
+  } else {
+    tbody.innerHTML = pageData.map(function(m){
+      var tags = (m.tags||[]).map(function(t){ return '<span class="tag">'+esc(t)+'</span>' }).join(' ');
+      var body = esc((m.body||'').slice(0, isFull ? 80 : 100));
+      var title = esc(m.title || '无标题');
+      if(isFull){
+        return '<tr onclick="window._showDetail('+m.id+')">'+
+          '<td class="col-id">'+m.id+'</td>'+
+          '<td class="col-title">'+title+'</td>'+
+          '<td class="col-body">'+body+'</td>'+
+          '<td>'+(tags||'<span style="color:var(--text4)">-</span>')+'</td>'+
+          '<td class="col-time">'+fmt(m.created_at)+'</td>'+
+          '<td class="col-time">'+fmt(m.updated_at)+'</td></tr>';
+      }
+      return '<tr onclick="window._showDetail('+m.id+')">'+
+        '<td class="col-id">'+m.id+'</td>'+
+        '<td class="col-title">'+title+'</td>'+
+        '<td class="col-body">'+body+'</td>'+
+        '<td>'+(tags||'<span style="color:var(--text4)">-</span>')+'</td>'+
+        '<td class="col-time">'+fmt(m.updated_at)+'</td></tr>';
+    }).join('');
+  }
+
+  // Pagination
+  $(infoId).textContent = '第 ' + page + '/' + pages + ' 页，共 ' + total + ' 条';
+  var btns = $(btnsId);
+  btns.innerHTML = '';
+  var startPage = Math.max(1, page - 3);
+  var endPage = Math.min(pages, startPage + 6);
+  if(endPage - startPage < 6) startPage = Math.max(1, endPage - 6);
+
+  var pageKey = isFull ? 'mem' : 'dash';
+  btns.innerHTML += '<button '+(page<=1?'disabled':'')+' onclick="window._setPage(\''+pageKey+'\','+(page-1)+')">‹</button>';
+  for(var i = startPage; i <= endPage; i++){
+    btns.innerHTML += '<button class="'+(i===page?'active':'')+'" onclick="window._setPage(\''+pageKey+'\','+i+')">'+i+'</button>';
+  }
+  btns.innerHTML += '<button '+(page>=pages?'disabled':'')+' onclick="window._setPage(\''+pageKey+'\','+(page+1)+')">›</button>';
+}
+
+// Expose to onclick
+window._setPage = function(key, p){
+  if(key === 'mem'){ curPageMem = p; } else { curPageDash = p; }
+  renderAll();
+};
+
+// ===== Page Navigation =====
+window.switchPage = function(page){
+  document.querySelectorAll('.nav-item[data-page]').forEach(function(n){ n.classList.remove('active') });
+  var navItem = document.querySelector('.nav-item[data-page="'+page+'"]');
+  if(navItem) navItem.classList.add('active');
+  $('page-dashboard').style.display = page==='dashboard' ? '' : 'none';
+  $('page-memories').style.display = page==='memories' ? '' : 'none';
+  $('pageTitle').textContent = page==='dashboard' ? '数据概览' : '记忆管理';
+  document.getElementById('sidebar').classList.remove('open');
+};
+
+// ===== Detail Modal =====
+window._showDetail = function(id){
+  var m = DATA.find(function(x){ return x.id === id });
+  if(!m) return;
+  currentModalId = id;
+  $('modalTitle').textContent = m.title || '记忆 #' + m.id;
+  var tags = (m.tags||[]).map(function(t){ return '<span class="tag">'+esc(t)+'</span>' }).join(' ');
+  $('modalBody').innerHTML =
+    field('ID', m.id) +
+    field('标题', esc(m.title || '-')) +
+    field('摘要', esc(m.summary || '-')) +
+    field('内容', '<pre>' + esc(m.body || '-') + '</pre>') +
+    field('标签', tags || '<span style="color:var(--text4)">无</span>') +
+    field('文件路径', '<span style="font-size:12px;color:var(--text3)">' + esc(m.file_path || '无') + '</span>') +
+    field('创建时间', fmt(m.created_at)) +
+    field('更新时间', fmt(m.updated_at));
+  $('modalBg').classList.add('show');
+};
+
+function field(label, value){
+  return '<div class="field"><div class="field-label">'+label+'</div><div class="field-value">'+value+'</div></div>';
+}
+
+window.closeModal = function(){
+  $('modalBg').classList.remove('show');
+  currentModalId = null;
+};
+
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal() });
+
+// ===== Delete =====
+$('modalDelete').onclick = function(){
+  if(!currentModalId) return;
+  if(!confirm('确定要删除这条记忆吗？此操作不可撤销。')) return;
+  fetch('/api/admin/memory/' + currentModalId + '?key=' + encodeURIComponent(API_KEY), { method:'DELETE' })
+    .then(function(r){ return r.json() })
+    .then(function(d){
+      if(d.success){
+        DATA = DATA.filter(function(m){ return m.id !== currentModalId });
+        closeModal();
+        renderAll();
+        toast('记忆已删除', 'success');
+      } else {
+        toast('删除失败: ' + (d.error||'未知错误'), 'error');
+      }
+    })
+    .catch(function(e){ toast('删除失败: ' + e.message, 'error') })
+};
+
+// ===== Export & Backup =====
+window.doExport = function(){
+  window.open('/api/admin/export?key=' + encodeURIComponent(API_KEY));
+  toast('正在导出...', 'info');
+};
+
+window.doBackup = function(){
+  window.open('/api/admin/backup?key=' + encodeURIComponent(API_KEY));
+  toast('正在下载...', 'info');
+};
+
+// ===== Init =====
+// Check if already logged in via URL param
+var urlParams = new URLSearchParams(window.location.search);
+var urlKey = urlParams.get('key');
+if(urlKey){
+  $('pwdInput').value = urlKey;
+  doLogin();
+}
+
+})();
+</script>
+</body>
+</html>

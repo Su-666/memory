@@ -900,89 +900,95 @@ def delete_memory(memory_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# ============ 管理员页面 ============
-
-@app.route('/admin')
-def admin_page():
-    """管理员数据查看页面"""
-    admin_key = os.environ.get("ADMIN_KEY", "").strip()
-    provided = request.args.get("key", "")
-    if not admin_key or provided != admin_key:
-        return "未授权", 403
-
-    conn = get_db_conn()
-    try:
-        total = app_repo.get_total_memories(conn)
-        rows = conn.execute(
-            "SELECT id, title, summary, body, file_path, extra_json, created_at, updated_at FROM memories ORDER BY updated_at DESC"
-        ).fetchall()
-    except Exception as e:
-        return f"数据库错误: {e}", 500
-
-    memories_html = ""
-    for r in rows:
-        tags = ""
-        try:
-            extra = json.loads(r["extra_json"] or "{}")
-            tags = " ".join(f'<span style="background:#e8f0fe;padding:1px 6px;border-radius:3px;font-size:12px">{t}</span>' for t in extra.get("tags", []))
-        except Exception:
-            pass
-        body_text = (r["body"] or "")[:200].replace("<", "&lt;").replace(">", "&gt;")
-        fp = (r["file_path"] or "").replace("<", "&lt;")
-        memories_html += f"""
-        <tr>
-            <td style="text-align:center;color:#888">{r['id']}</td>
-            <td><b>{(r['title'] or '').replace('<','&lt;')}</b></td>
-            <td style="color:#555;font-size:13px">{(r['summary'] or '').replace('<','&lt;')}</td>
-            <td style="font-size:12px;max-width:300px;word-break:break-all">{body_text}</td>
-            <td>{tags}</td>
-            <td style="font-size:12px;color:#888">{r['updated_at'] or ''}</td>
-        </tr>"""
-
-    html = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>记忆数据管理</title>
-<style>
-body {{ font-family: -apple-system, sans-serif; margin: 20px; background: #f5f5f5; }}
-h1 {{ color: #333; }}
-.stats {{ background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
-.stats span {{ margin-right: 24px; }}
-input#search {{ width: 300px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }}
-table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
-th {{ background: #4a90d9; color: #fff; padding: 10px 12px; text-align: left; font-size: 13px; }}
-td {{ padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }}
-tr:hover {{ background: #f0f7ff; }}
-</style></head><body>
-<h1>记忆数据管理</h1>
-<div class="stats">
-    <span>总记忆数: <b>{total}</b></span>
-    <input id="search" placeholder="搜索标题/内容..." oninput="filterTable()">
-</div>
-<table id="tbl">
-<thead><tr><th>ID</th><th>标题</th><th>摘要</th><th>内容预览</th><th>标签</th><th>更新时间</th></tr></thead>
-<tbody>{memories_html}</tbody>
-</table>
-<script>
-function filterTable() {{
-    const q = document.getElementById('search').value.toLowerCase();
-    document.querySelectorAll('#tbl tbody tr').forEach(tr => {{
-        tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
-    }});
-}}
-</script>
-</body></html>"""
-    return html
-
-
-# ============ 管理员接口 ============
+# ============ 管理员页面 & 接口 ============
 
 def _check_admin_key():
     """校验管理员密钥（通过 ADMIN_KEY 环境变量设置）"""
     admin_key = os.environ.get("ADMIN_KEY", "").strip()
     if not admin_key:
-        return None  # 未设置则不允许访问
+        return None
     provided = request.headers.get("X-Admin-Key", "") or request.args.get("key", "")
     return provided == admin_key
 
+
+@app.route('/admin')
+def admin_page():
+    """管理员页面（SPA，登录逻辑由前端处理）"""
+    return send_from_directory('.', 'admin.html')
+
+
+@app.route('/api/admin/verify')
+def admin_verify():
+    """验证管理员密码"""
+    admin_key = os.environ.get("ADMIN_KEY", "").strip()
+    if not admin_key:
+        return jsonify({"ok": False, "error": "管理员密码未配置"}), 500
+    provided = request.args.get("key", "")
+    if provided == admin_key:
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "密码错误"}), 401
+
+
+@app.route('/api/admin/data')
+def admin_data():
+    """返回所有记忆数据 + 统计信息（需管理员密码）"""
+    if not _check_admin_key():
+        return jsonify({'error': '未授权'}), 403
+    conn = get_db_conn()
+    try:
+        total = app_repo.get_total_memories(conn)
+        tag_counts = app_repo.get_tag_counts(conn)
+        total_tags = len(tag_counts)
+        top_tags = tag_counts[:10]
+        rows = conn.execute(
+            "SELECT id, title, summary, body, file_path, extra_json, created_at, updated_at FROM memories ORDER BY updated_at DESC"
+        ).fetchall()
+        row_file = conn.execute("SELECT COUNT(*) FROM memories WHERE file_path <> ''").fetchone()
+        total_files = row_file[0] if row_file else 0
+
+        memories = []
+        for r in rows:
+            tags = []
+            try:
+                extra = json.loads(r["extra_json"] or "{}")
+                tags = extra.get("tags", [])
+            except Exception:
+                pass
+            memories.append({
+                "id": r["id"],
+                "title": r["title"] or "",
+                "summary": r["summary"] or "",
+                "body": (r["body"] or "")[:500],
+                "tags": tags,
+                "file_path": r["file_path"] or "",
+                "created_at": r["created_at"] or "",
+                "updated_at": r["updated_at"] or "",
+            })
+
+        return jsonify({
+            "total": total,
+            "total_files": total_files,
+            "total_tags": total_tags,
+            "top_tags": top_tags,
+            "memories": memories,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/admin/memory/<int:memory_id>', methods=['DELETE'])
+def admin_delete_memory(memory_id):
+    """删除记忆（需管理员密码）"""
+    if not _check_admin_key():
+        return jsonify({'error': '未授权'}), 403
+    conn = get_db_conn()
+    try:
+        app_repo.delete_memory(conn, memory_id)
+        response_cache.invalidate("recent_memories")
+        response_cache.invalidate("stats")
+        return jsonify({'success': True, 'message': '记忆已删除'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/admin/backup', methods=['GET'])
 def admin_backup():
