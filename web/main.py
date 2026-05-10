@@ -900,6 +900,143 @@ def delete_memory(memory_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# ============ 管理员页面 ============
+
+@app.route('/admin')
+def admin_page():
+    """管理员数据查看页面"""
+    admin_key = os.environ.get("ADMIN_KEY", "").strip()
+    provided = request.args.get("key", "")
+    if not admin_key or provided != admin_key:
+        return "未授权", 403
+
+    conn = get_db_conn()
+    try:
+        total = app_repo.get_total_memories(conn)
+        rows = conn.execute(
+            "SELECT id, title, summary, body, file_path, extra_json, created_at, updated_at FROM memories ORDER BY updated_at DESC"
+        ).fetchall()
+    except Exception as e:
+        return f"数据库错误: {e}", 500
+
+    memories_html = ""
+    for r in rows:
+        tags = ""
+        try:
+            extra = json.loads(r["extra_json"] or "{}")
+            tags = " ".join(f'<span style="background:#e8f0fe;padding:1px 6px;border-radius:3px;font-size:12px">{t}</span>' for t in extra.get("tags", []))
+        except Exception:
+            pass
+        body_text = (r["body"] or "")[:200].replace("<", "&lt;").replace(">", "&gt;")
+        fp = (r["file_path"] or "").replace("<", "&lt;")
+        memories_html += f"""
+        <tr>
+            <td style="text-align:center;color:#888">{r['id']}</td>
+            <td><b>{(r['title'] or '').replace('<','&lt;')}</b></td>
+            <td style="color:#555;font-size:13px">{(r['summary'] or '').replace('<','&lt;')}</td>
+            <td style="font-size:12px;max-width:300px;word-break:break-all">{body_text}</td>
+            <td>{tags}</td>
+            <td style="font-size:12px;color:#888">{r['updated_at'] or ''}</td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>记忆数据管理</title>
+<style>
+body {{ font-family: -apple-system, sans-serif; margin: 20px; background: #f5f5f5; }}
+h1 {{ color: #333; }}
+.stats {{ background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
+.stats span {{ margin-right: 24px; }}
+input#search {{ width: 300px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }}
+table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.1); }}
+th {{ background: #4a90d9; color: #fff; padding: 10px 12px; text-align: left; font-size: 13px; }}
+td {{ padding: 8px 12px; border-bottom: 1px solid #eee; font-size: 13px; }}
+tr:hover {{ background: #f0f7ff; }}
+</style></head><body>
+<h1>记忆数据管理</h1>
+<div class="stats">
+    <span>总记忆数: <b>{total}</b></span>
+    <input id="search" placeholder="搜索标题/内容..." oninput="filterTable()">
+</div>
+<table id="tbl">
+<thead><tr><th>ID</th><th>标题</th><th>摘要</th><th>内容预览</th><th>标签</th><th>更新时间</th></tr></thead>
+<tbody>{memories_html}</tbody>
+</table>
+<script>
+function filterTable() {{
+    const q = document.getElementById('search').value.toLowerCase();
+    document.querySelectorAll('#tbl tbody tr').forEach(tr => {{
+        tr.style.display = tr.textContent.toLowerCase().includes(q) ? '' : 'none';
+    }});
+}}
+</script>
+</body></html>"""
+    return html
+
+
+# ============ 管理员接口 ============
+
+def _check_admin_key():
+    """校验管理员密钥（通过 ADMIN_KEY 环境变量设置）"""
+    admin_key = os.environ.get("ADMIN_KEY", "").strip()
+    if not admin_key:
+        return None  # 未设置则不允许访问
+    provided = request.headers.get("X-Admin-Key", "") or request.args.get("key", "")
+    return provided == admin_key
+
+
+@app.route('/api/admin/backup', methods=['GET'])
+def admin_backup():
+    """下载 SQLite 数据库文件（需 ADMIN_KEY）"""
+    if not _check_admin_key():
+        return jsonify({'error': '未授权'}), 403
+    db_path = DATA_DIR / "agent.db"
+    if not db_path.exists():
+        return jsonify({'error': '数据库文件不存在'}), 404
+    return send_from_directory(
+        str(DATA_DIR), "agent.db",
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name=f"agent_backup_{time.strftime('%Y%m%d_%H%M%S')}.db",
+    )
+
+
+@app.route('/api/admin/export', methods=['GET'])
+def admin_export():
+    """导出所有记忆为 JSON（需 ADMIN_KEY）"""
+    if not _check_admin_key():
+        return jsonify({'error': '未授权'}), 403
+    conn = get_db_conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, title, summary, body, file_path, extra_json, created_at, updated_at FROM memories ORDER BY id"
+        ).fetchall()
+        memories = []
+        for r in rows:
+            memories.append({
+                "id": r["id"],
+                "title": r["title"],
+                "summary": r["summary"],
+                "body": r["body"],
+                "file_path": r["file_path"],
+                "extra_json": r["extra_json"],
+                "created_at": r["created_at"],
+                "updated_at": r["updated_at"],
+            })
+        export_data = {
+            "exported_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "total": len(memories),
+            "memories": memories,
+        }
+        resp = Response(
+            json.dumps(export_data, ensure_ascii=False, indent=2),
+            mimetype="application/json",
+        )
+        resp.headers["Content-Disposition"] = f'attachment; filename=memories_export_{time.strftime("%Y%m%d_%H%M%S")}.json'
+        return resp
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============ 启动 ============
 
 # 启动时初始化 vault（仅一次）
