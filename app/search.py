@@ -104,7 +104,7 @@ _fexists_cache: dict[str, tuple[bool, float]] = {}
 _FEXISTS_TTL = 120  # 2 minutes
 
 
-def _path_exists(file_path: str, _cache: dict | None = None) -> bool:
+def _path_exists(file_path: str) -> bool:
     """Check if a file path exists, with a module-level TTL cache."""
     if not file_path:
         return True  # empty path = no file to check, treat as valid

@@ -180,7 +180,7 @@ class SimpleCache:
                 del self.cache[k]
 
 response_cache = SimpleCache()
-_storage_size_cache: dict[str, Any] = {"size": 0, "time": 0}
+_storage_size_cache = {"size": 0, "time": 0}
 _STORAGE_CACHE_TTL = 120  # 2 分钟缓存存储大小
 
 class RateLimiter:

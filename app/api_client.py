@@ -53,7 +53,7 @@ class MemoryApiClient:
     def connected(self) -> bool:
         return self._connected
 
-    def _get_cached(self, key: str) -> dict | None:
+    def _get_cached(self, key: str) -> Any | None:
         """Return cached value if still fresh, else None."""
         entry = self._cache.get(key)
         if entry is not None:
