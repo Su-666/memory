@@ -66,11 +66,6 @@ def determine_intent(text: str) -> str:
     if len(stripped) <= 10 and any(k in stripped.lower() for k in greeting_keywords):
         return "chat"
 
-    # 问句 -> chat（让大模型联网搜索）
-    question_marks = ("？", "?", "嘛", "吗", "呀", "啊")
-    if any(stripped.endswith(m) for m in question_marks):
-        return "chat"
-
     return "chat"
 
 
@@ -93,15 +88,12 @@ def check_save_pending(text: str) -> tuple[bool, str | None]:
     """
     text_stripped = text.strip()
 
-    # 有"是"且后面有实质内容 -> 不需要等待
-    if "是" in text_stripped:
-        parts = text_stripped.split("是", 1)
-        after_is = parts[1].strip() if len(parts) == 2 else ""
-        if after_is and (len(after_is) > 2 or any(c.isdigit() for c in after_is)):
-            return (False, None)
-
     # 有数字 -> 有具体内容
     if any(c.isdigit() for c in text_stripped):
+        return (False, None)
+
+    # 有足够长的实质内容（非纯意图短语）-> 不需要等待
+    if len(text_stripped) > 10:
         return (False, None)
 
     # 纯意图短语（后面没有内容或只有占位词）

@@ -4,10 +4,9 @@
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
-from urllib import request as http_request
+
+from .zhipu_client import call_chat
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +28,8 @@ def call_llm_chat(
     *,
     system_prompt: str | None = None,
     enable_web_search: bool = True,
+    temperature: float = 0.85,
+    max_tokens: int = 4096,
 ) -> str | None:
     """调用智谱大模型对话。
 
@@ -37,91 +38,68 @@ def call_llm_chat(
         history: 对话历史 [{"role": "user"/"assistant", "content": "..."}]
         system_prompt: 系统提示词，默认使用暖暖人设
         enable_web_search: 是否启用联网搜索
+        temperature: 温度参数
+        max_tokens: 最大生成 token 数
 
     Returns:
         模型回复文本，失败返回 None
     """
-    api_key = os.getenv("ZHIPU_API_KEY", "").strip()
-    if not api_key:
-        return None
-
-    base_url = "https://open.bigmodel.cn/api/paas/v4"
-    model = os.getenv("LOCAL_AGENT_MODEL", "GLM-4-Flash-250414")
-
     sys_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
     messages = [{"role": "system", "content": sys_prompt}]
     messages.extend(history)
     messages.append({"role": "user", "content": user_query})
 
-    payload: dict = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.85,
-        "top_p": 0.92,
-        "max_tokens": 4096,
-    }
-
+    tools = None
     if enable_web_search:
-        payload["tools"] = [{"type": "web_search", "web_search": {"enable": True}}]
+        tools = [{"type": "web_search", "web_search": {"enable": True}}]
 
     try:
-        req = http_request.Request(
-            f"{base_url.rstrip('/')}/chat/completions",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            method="POST",
+        data = call_chat(
+            messages,
+            temperature=temperature,
+            top_p=0.92,
+            max_tokens=max_tokens,
+            tools=tools,
+            timeout=90,
+            retries=2,
         )
-        with http_request.urlopen(req, timeout=90) as response:
-            data = json.loads(response.read().decode("utf-8"))
-
-        if "choices" not in data or not data["choices"]:
-            logger.warning("LLM 返回无 choices: %s", data.get("error", data))
-            return None
-
-        message = data["choices"][0]["message"]
-
-        # 处理工具调用（联网搜索）
-        if "tool_calls" in message and enable_web_search:
-            messages.append(message)
-            for tool_call in message["tool_calls"]:
-                func = tool_call.get("function", {})
-                if func.get("name") == "web_search":
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call["id"],
-                        "content": "联网搜索已完成",
-                    })
-
-            req2 = http_request.Request(
-                f"{base_url.rstrip('/')}/chat/completions",
-                data=json.dumps({
-                    "model": model,
-                    "messages": messages,
-                    "temperature": 0.7,
-                    "top_p": 0.9,
-                    "max_tokens": 4096,
-                }, ensure_ascii=False).encode("utf-8"),
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-            with http_request.urlopen(req2, timeout=90) as response:
-                data2 = json.loads(response.read().decode("utf-8"))
-            if "choices" not in data2 or not data2["choices"]:
-                logger.warning("LLM 第二次调用返回无 choices")
-                return None
-            final_message = data2["choices"][0]["message"]
-            content = final_message.get("content", "")
-            return str(content).strip() if content else None
-
-        content = message.get("content", "")
-        return str(content).strip() if content else None
-
     except Exception as e:
         logger.warning("智谱大模型对话失败: %s", e)
         return None
+
+    message = data["choices"][0]["message"]
+
+    # 处理工具调用（联网搜索）
+    if "tool_calls" in message and enable_web_search:
+        messages.append(message)
+        for tool_call in message["tool_calls"]:
+            func = tool_call.get("function", {})
+            if func.get("name") == "web_search":
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call["id"],
+                    "content": "联网搜索已完成",
+                })
+
+        try:
+            data2 = call_chat(
+                messages,
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=max_tokens,
+                timeout=90,
+                retries=2,
+            )
+        except Exception as e:
+            logger.warning("智谱大模型二次调用失败: %s", e)
+            return None
+
+        if "choices" not in data2 or not data2["choices"]:
+            logger.warning("LLM 第二次调用返回无 choices")
+            return None
+        final_message = data2["choices"][0]["message"]
+        content = final_message.get("content", "")
+        return str(content).strip() if content else None
+
+    content = message.get("content", "")
+    return str(content).strip() if content else None

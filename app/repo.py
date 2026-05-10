@@ -111,9 +111,9 @@ def remember_text_smart(conn: sqlite3.Connection, *, text: str, vault_root: Path
     ensure_vault_root(vault_root)
     file_path = write_text_memory(text, vault_root, title=title)
     try:
-        return insert_memory(conn, title=title, summary=summary, body=text, file_path=str(file_path), extra={"source": "text"})
+        memory_id = insert_memory(conn, title=title, summary=summary, body=text, file_path=str(file_path), extra={"source": "text"})
+        return memory_id
     except Exception:
-        # 回滚：删除已写入的文件
         try:
             file_path.unlink(missing_ok=True)
         except Exception:
@@ -324,10 +324,10 @@ def get_total_memories(conn: sqlite3.Connection) -> int:
     return int(row["count"]) if row else 0
 
 
-def get_all_tags(conn: sqlite3.Connection) -> list[str]:
-    """从 extra_json 中提取所有标签"""
+def get_all_tags(conn: sqlite3.Connection, limit: int = 2000) -> list[str]:
+    """从 extra_json 中提取标签（限制扫描行数防止全表扫描）"""
     tag_set: set[str] = set()
-    for row in conn.execute("SELECT extra_json FROM memories").fetchall():
+    for row in conn.execute("SELECT extra_json FROM memories ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall():
         try:
             extra = json.loads(row["extra_json"] or "{}")
             tags = extra.get("tags") or []

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass
 from typing import Any
-from urllib import request
 
-from .intent import extract_text, load_env_file
+from .utils import extract_text, load_env_file, parse_json_block
+from .zhipu_client import call_chat
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +42,6 @@ def _local_answer(query: str, contexts: list[str]) -> AnswerResult:
 
 def _call_answer_model(query: str, memories: list[dict[str, Any]]) -> AnswerResult | None:
     load_env_file()
-    api_key = os.getenv("ZHIPU_API_KEY", "").strip()
-    if not api_key:
-        return None
-
-    base_url = "https://open.bigmodel.cn/api/paas/v4"
-    model = os.getenv("LOCAL_AGENT_MODEL", "glm-4-flash-250414")
 
     packed: list[dict[str, str]] = []
     for m in memories[:6]:
@@ -75,38 +68,15 @@ def _call_answer_model(query: str, memories: list[dict[str, Any]]) -> AnswerResu
         f"记忆片段：{json.dumps(packed, ensure_ascii=False)}"
     )
 
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": "你是一个严格输出 JSON 的中文助手。"},
-            {"role": "user", "content": prompt},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 300,
-    }
-
-    req = request.Request(
-        f"{base_url.rstrip('/')}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    messages = [
+        {"role": "system", "content": "你是一个严格输出 JSON 的中文助手。"},
+        {"role": "user", "content": prompt},
+    ]
 
     try:
-        with request.urlopen(req, timeout=30) as response:
-            data = json.loads(response.read().decode("utf-8"))
-        if "choices" not in data or not data["choices"]:
-            logger.warning("回答模型返回无 choices: %s", data.get("error", data))
-            return None
+        data = call_chat(messages, temperature=0.1, max_tokens=300, timeout=30, retries=2)
         content = extract_text(data["choices"][0]["message"]["content"])
-        content = content.strip()
-        if content.startswith("```"):
-            content = re.sub(r"^```(?:json)?\s*", "", content)
-            content = re.sub(r"\s*```\s*$", "", content).strip()
-        parsed = json.loads(content)
+        parsed = parse_json_block(content)
         answer = str(parsed.get("answer", "")).strip()
         conf = float(parsed.get("confidence") or 0.0)
         return AnswerResult(answer=answer, confidence=max(0.0, min(1.0, conf)))
@@ -126,4 +96,3 @@ def answer(query: str, memories: list[dict[str, Any]]) -> AnswerResult:
         contexts.append(str(m.get("summary", "")))
         contexts.append(str(m.get("body_snippet", "")))
     return _local_answer(query, contexts)
-

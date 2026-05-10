@@ -163,11 +163,12 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
         logger.debug("FTS 搜索失败，回退到 LIKE: %s", e)
 
     if not results:
-        # LIKE 回退：对每个 token 做 OR，提高“问句”场景命中率
+        # LIKE 回退：对每个 token 做 OR，提高”问句”场景命中率
         like_terms = tokens or [q]
         wheres: list[str] = []
         params: list[str] = []
         for t in like_terms[:6]:
+            t = t.replace(chr(92), chr(92)*2).replace(chr(37), chr(92)+chr(37)).replace(chr(95), chr(92)+chr(95))
             wheres.append("(title LIKE ? OR summary LIKE ? OR body LIKE ?)")
             params.extend([f"%{t}%", f"%{t}%", f"%{t}%"])
         where_sql = " OR ".join(wheres) if wheres else "(title LIKE ? OR summary LIKE ? OR body LIKE ?)"
