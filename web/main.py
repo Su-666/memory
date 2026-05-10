@@ -305,6 +305,32 @@ def health():
     return jsonify({"status": "ok", "service": "nuan-nuan-memory", "version": APP_VERSION})
 
 
+@app.route('/api/diag')
+def diag():
+    """诊断端点：检查 LLM 配置和连通性"""
+    import os
+    api_key = os.getenv("ZHIPU_API_KEY", "").strip()
+    model = os.getenv("LOCAL_AGENT_MODEL", "").strip()
+    result = {
+        "zhipu_api_key_set": bool(api_key),
+        "zhipu_api_key_prefix": api_key[:8] + "..." if api_key else "",
+        "model": model or "glm-4-flash-250414 (default)",
+    }
+    # 尝试一次轻量 LLM 调用
+    try:
+        from app.zhipu_client import call_chat
+        data = call_chat(
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10, timeout=10, retries=0,
+        )
+        result["llm_test"] = "ok"
+        result["llm_response"] = str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))[:50]
+    except Exception as e:
+        result["llm_test"] = "failed"
+        result["llm_error"] = str(e)[:200]
+    return jsonify(result)
+
+
 @app.route('/api/version')
 def get_version():
     return jsonify({
@@ -334,9 +360,15 @@ def _make_llm_chat_fn(client_id: str):
     def llm_chat_fn(query, hist=None):
         history = _get_chat_history(client_id)
         _append_chat_history(client_id, "user", query)
-        response = call_llm_chat(query, history)
+        try:
+            response = call_llm_chat(query, history)
+        except Exception as e:
+            print(f"[LLM_ERROR] call_llm_chat 异常: {e}", file=sys.stderr, flush=True)
+            response = None
         if response:
             _append_chat_history(client_id, "assistant", response)
+        else:
+            print(f"[LLM_WARN] call_llm_chat 返回 None, query={query[:50]}", file=sys.stderr, flush=True)
         return response
     return llm_chat_fn
 
