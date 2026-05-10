@@ -274,6 +274,22 @@ def performance_monitor(f):
             raise
     return decorated_function
 
+
+def http_cache(max_age=0):
+    """Decorator to add Cache-Control headers to JSON responses."""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            response = f(*args, **kwargs)
+            if hasattr(response, 'headers'):
+                if max_age > 0:
+                    response.headers['Cache-Control'] = f'public, max-age={max_age}'
+                else:
+                    response.headers['Cache-Control'] = 'no-cache, no-store'
+            return response
+        return decorated_function
+    return decorator
+
 # ============ 路由 ============
 
 @app.route('/')
@@ -281,6 +297,7 @@ def index():
     return send_from_directory('.', 'index.html')
 
 @app.route('/api/health')
+@http_cache(max_age=0)
 def health():
     return jsonify({"status": "ok", "service": "nuan-nuan-memory", "version": APP_VERSION})
 
@@ -558,9 +575,11 @@ def speech_synthesize():
 @app.route('/api/voice_dialogue', methods=['POST'])
 @rate_limit
 def voice_dialogue():
-    """语音对话API"""
+    """语音对话API。传入 skip_tts=true 可跳过语音合成，由客户端单独请求TTS。"""
     if 'audio' not in request.files:
         return jsonify({'error': '请上传音频文件'}), 400
+
+    skip_tts = request.form.get('skip_tts', '').lower() in ('true', '1', 'yes')
 
     audio_file = request.files['audio']
     try:
@@ -589,11 +608,12 @@ def voice_dialogue():
                 title, summary = build_memory_metadata_fast(final_text)
                 app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
             resp = {'user_text': user_text, 'type': 'assistant', 'text': reply, 'saved': True}
-            try:
-                audio_bytes = synthesize_with_qwen(reply[:150])
-                resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
-            except Exception:
-                resp['audio'] = None
+            if not skip_tts:
+                try:
+                    audio_bytes = synthesize_with_qwen(reply[:150])
+                    resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
+                except Exception:
+                    resp['audio'] = None
             return jsonify(resp)
 
         llm_chat_fn = _make_llm_chat_fn(client_id)
@@ -614,15 +634,16 @@ def voice_dialogue():
         if result.get('saved'):
             resp['saved'] = True
 
-        try:
-            tts_text = result['text'][:300]
-            if result.get('pending_save'):
-                tts_text = result['text'][:150]
-            audio_bytes = synthesize_with_qwen(tts_text)
-            resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
-        except Exception as e:
-            print(f"[voice_dialogue] TTS 失败: {e}", file=sys.stderr, flush=True)
-            resp['audio'] = None
+        if not skip_tts:
+            try:
+                tts_text = result['text'][:300]
+                if result.get('pending_save'):
+                    tts_text = result['text'][:150]
+                audio_bytes = synthesize_with_qwen(tts_text)
+                resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
+            except Exception as e:
+                print(f"[voice_dialogue] TTS 失败: {e}", file=sys.stderr, flush=True)
+                resp['audio'] = None
 
         return jsonify(resp)
 
@@ -690,6 +711,7 @@ def get_image():
 @app.route('/api/memories/recent', methods=['GET'])
 @rate_limit
 @performance_monitor
+@http_cache(max_age=30)
 @cached_response(lambda: f"recent_memories:{request.args.get('limit', '10')}", ttl=60)
 def recent_memories():
     conn = get_db_conn()
@@ -733,6 +755,7 @@ def search_memories_advanced():
 @app.route('/api/tags', methods=['GET'])
 @rate_limit
 @performance_monitor
+@http_cache(max_age=300)
 @cached_response(lambda: "all_tags", ttl=300)
 def get_all_tags():
     try:
@@ -754,33 +777,23 @@ def get_all_tags():
 @app.route('/api/stats', methods=['GET'])
 @rate_limit
 @performance_monitor
+@http_cache(max_age=60)
 @cached_response(lambda: "stats", ttl=60)
 def get_stats():
     try:
         conn = get_db_conn()
         total_memories = app_repo.get_total_memories(conn)
         recent = app_repo.list_recent(conn, limit=10)
-        all_tags = app_repo.get_all_tags(conn)
-
         # 统计文件类记忆数量
         row = conn.execute(
             "SELECT COUNT(*) FROM memories WHERE file_path <> ''"
         ).fetchone()
         total_files = row[0] if row else 0
 
-        # 热门标签（从 extra_json 提取带计数）
-        tag_rows = conn.execute(
-            "SELECT extra_json FROM memories WHERE extra_json LIKE '%tags%'"
-        ).fetchall()
-        tag_counter: dict[str, int] = {}
-        for tr in tag_rows:
-            try:
-                extra = json.loads(tr[0])
-                for t in extra.get("tags", []):
-                    tag_counter[t] = tag_counter.get(t, 0) + 1
-            except Exception:
-                pass
-        top_tags = sorted(tag_counter.items(), key=lambda x: -x[1])[:10]
+        # 标签统计（单次查询，同时获取标签列表和计数）
+        tag_counts = app_repo.get_tag_counts(conn)
+        all_tags = [t for t, _ in tag_counts]
+        top_tags = tag_counts[:10]
 
         # 存储信息（带缓存，避免每次遍历目录）
         now_ts = time.time()

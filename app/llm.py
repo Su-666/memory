@@ -27,7 +27,7 @@ def call_llm_chat(
     history: list[dict],
     *,
     system_prompt: str | None = None,
-    enable_web_search: bool = True,
+    enable_web_search: bool = False,
     temperature: float = 0.85,
     max_tokens: int = 4096,
 ) -> str | None:

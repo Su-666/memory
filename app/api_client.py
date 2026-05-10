@@ -14,6 +14,7 @@ import uuid
 import urllib.request
 import urllib.error
 from pathlib import Path
+from typing import Any
 
 # SSL 证书修复（打包后常见问题）
 try:
@@ -43,10 +44,25 @@ class MemoryApiClient:
         self.client_id = client_id
         self.timeout = timeout
         self._connected = False  # 连接状态缓存
+        self._cache: dict[str, tuple[Any, float]] = {}  # key -> (value, timestamp)
+        self._cache_ttl = 300  # 5 minutes default TTL
 
     @property
     def connected(self) -> bool:
         return self._connected
+
+    def _get_cached(self, key: str) -> dict | None:
+        """Return cached value if still fresh, else None."""
+        entry = self._cache.get(key)
+        if entry is not None:
+            value, ts = entry
+            if time.time() - ts < self._cache_ttl:
+                return value
+            del self._cache[key]
+        return None
+
+    def _set_cached(self, key: str, value: dict):
+        self._cache[key] = (value, time.time())
 
     def _make_request(self, method: str, path: str, data=None, files=None, _retry=True) -> dict:
         """发送 HTTP 请求（带自动重试）"""
@@ -209,12 +225,22 @@ class MemoryApiClient:
     # ---- 标签和统计 ----
 
     def get_tags(self) -> dict:
-        """获取所有标签"""
-        return self._make_request("GET", "/api/tags")
+        """获取所有标签（带本地缓存）"""
+        cached = self._get_cached("tags")
+        if cached is not None:
+            return cached
+        result = self._make_request("GET", "/api/tags")
+        self._set_cached("tags", result)
+        return result
 
     def get_stats(self) -> dict:
-        """获取统计信息"""
-        return self._make_request("GET", "/api/stats")
+        """获取统计信息（带本地缓存）"""
+        cached = self._get_cached("stats")
+        if cached is not None:
+            return cached
+        result = self._make_request("GET", "/api/stats")
+        self._set_cached("stats", result)
+        return result
 
     # ---- 聊天历史 ----
 

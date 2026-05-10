@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -98,15 +99,31 @@ def _score(text: str, query: str) -> int:
     return score
 
 
-def _path_exists(file_path: str, cache: dict[str, bool]) -> bool:
-    cached = cache.get(file_path)
+# Module-level file existence cache with TTL
+_fexists_cache: dict[str, tuple[bool, float]] = {}
+_FEXISTS_TTL = 120  # 2 minutes
+
+
+def _path_exists(file_path: str, _cache: dict | None = None) -> bool:
+    """Check if a file path exists, with a module-level TTL cache."""
+    if not file_path:
+        return True  # empty path = no file to check, treat as valid
+    now = time.time()
+    cached = _fexists_cache.get(file_path)
     if cached is not None:
-        return cached
+        exists, ts = cached
+        if now - ts < _FEXISTS_TTL:
+            return exists
     try:
         exists = Path(file_path).exists()
     except Exception:
         exists = False
-    cache[file_path] = exists
+    _fexists_cache[file_path] = (exists, now)
+    # Prune stale entries periodically
+    if len(_fexists_cache) > 500:
+        stale = [k for k, (_, ts) in _fexists_cache.items() if now - ts > _FEXISTS_TTL * 2]
+        for k in stale:
+            del _fexists_cache[k]
     return exists
 
 
@@ -116,7 +133,6 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
         return []
 
     results: list[dict[str, Any]] = []
-    file_exists_cache: dict[str, bool] = {}
     tokens = _tokenize(q)
     fts_q = _fts_query(tokens) or q
 
@@ -135,7 +151,7 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
         ).fetchall()
         for row in fts_rows:
             fp = str(row["file_path"] or "").strip()
-            if fp and not _path_exists(fp, file_exists_cache):
+            if fp and not _path_exists(fp):
                 continue
             results.append(
                 {
@@ -169,7 +185,7 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
             tuple(params),
         ).fetchall():
             fp = str(row["file_path"] or "").strip()
-            if fp and not _path_exists(fp, file_exists_cache):
+            if fp and not _path_exists(fp):
                 continue
             body_preview = (row['body'] or '')[:500]
             text = f"{row['title']} {row['summary']} {body_preview}"

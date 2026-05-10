@@ -341,6 +341,22 @@ def get_all_tags(conn: sqlite3.Connection, limit: int = 2000) -> list[str]:
     return sorted(tag_set)
 
 
+def get_tag_counts(conn: sqlite3.Connection, limit: int = 2000) -> list[tuple[str, int]]:
+    """从 extra_json 中提取标签及出现次数，返回按次数降序排列的 (tag, count) 列表"""
+    tag_counter: dict[str, int] = {}
+    for row in conn.execute("SELECT extra_json FROM memories WHERE extra_json LIKE '%tags%' ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall():
+        try:
+            extra = json.loads(row["extra_json"])
+            for t in extra.get("tags") or []:
+                if t and isinstance(t, str):
+                    t = t.strip()
+                    if t:
+                        tag_counter[t] = tag_counter.get(t, 0) + 1
+        except Exception:
+            continue
+    return sorted(tag_counter.items(), key=lambda x: -x[1])
+
+
 def search_advanced(conn: sqlite3.Connection, conditions: dict[str, Any]) -> list[dict[str, Any]]:
     """高级搜索：支持关键词 + 标签 + 日期范围"""
     from . import search as app_search

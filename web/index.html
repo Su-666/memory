@@ -2416,6 +2416,7 @@
                 console.log(`[语音] 录音数据: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.wav');
+                formData.append('skip_tts', 'true');
 
                 // 如果有待保存内容，传给后端处理确认/取消/合并
                 if (pendingSaveText) {
@@ -2483,12 +2484,31 @@
                     showResults(data.results);
                 }
 
-                // 播放回复语音
+                // 播放回复语音（先尝试已有的 audio，否则单独请求 TTS）
                 if (data.audio) {
                     voiceState = 'speaking';
                     updateVoiceButton();
                     await playVoiceAudio(data.audio);
-                    // playVoiceAudio 的 onended 会调用 continueVoiceLoop
+                } else if (data.text) {
+                    // 单独请求 TTS，让文字响应先展示
+                    voiceState = 'speaking';
+                    updateVoiceButton();
+                    try {
+                        const ttsResp = await fetch('/api/speech_synthesize', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: data.text.slice(0, 300) })
+                        });
+                        const ttsData = await ttsResp.json();
+                        if (ttsData.audio) {
+                            await playVoiceAudio(ttsData.audio);
+                        } else {
+                            resetToListening();
+                        }
+                    } catch (ttsErr) {
+                        console.warn('TTS 请求失败:', ttsErr);
+                        resetToListening();
+                    }
                 } else {
                     resetToListening();
                 }
