@@ -9,6 +9,7 @@ import json
 import threading
 import re
 import time
+from collections import OrderedDict
 from functools import wraps
 from pathlib import Path
 
@@ -22,6 +23,7 @@ from flask_cors import CORS
 # 版本信息
 APP_VERSION = "6.0"
 CHANGELOG = "全新界面设计，在线模式，暗色主题支持"
+DOWNLOAD_URL = ""
 
 # Railway 使用环境变量 PORT
 PORT = int(os.environ.get("PORT", 5000))
@@ -60,19 +62,12 @@ except ModuleNotFoundError as e:
 
 # Flask 应用
 app = Flask(__name__, static_folder='static', static_url_path='/static')
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+ALLOWED_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
+CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
-# 加载环境变量
-def load_env():
-    dotenv_path = project_root / ".env"
-    if dotenv_path.exists():
-        for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
-            line = raw_line.strip()
-            if line and "=" in line and not line.startswith("#"):
-                key, value = line.split("=", 1)
-                os.environ.setdefault(key.strip(), value.strip())
-
-load_env()
+# 加载环境变量（复用 app.utils 的统一实现）
+from app.utils import load_env_file
+load_env_file(str(project_root / ".env"))
 
 # ============ 优化：数据库单例连接 ============
 _db_conn = None
@@ -110,16 +105,16 @@ def init_vault_once():
         imported = app_repo.bootstrap_import_vault(conn, vault_root)
         if imported:
             print(f"[STARTUP] 导入 {imported} 条新记忆", file=sys.stderr, flush=True)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[STARTUP] vault bootstrap import failed: {e}", file=sys.stderr, flush=True)
     # 仅在本地环境清理失效文件记忆（Railway 上数据目录是持久化的，不需要清理）
     if not os.environ.get("RAILWAY_STATIC_URL"):
         try:
             removed = app_repo.prune_missing_file_memories(conn)
             if removed:
                 print(f"[STARTUP] 清理 {removed} 条失效记忆", file=sys.stderr, flush=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[STARTUP] prune failed: {e}", file=sys.stderr, flush=True)
 
 # ============ 优化：per-client 聊天历史 ============
 _client_chat_histories: dict[str, list[dict]] = {}
@@ -130,7 +125,9 @@ def _get_client_id() -> str:
     """获取客户端标识 - 优先使用 X-Client-Id 请求头，回退到 IP"""
     client_id = request.headers.get("X-Client-Id", "").strip()
     if client_id:
-        return client_id
+        client_id = re.sub(r'[^a-zA-Z0-9_\-]', '', client_id)[:64]
+        if client_id:
+            return client_id
     return request.remote_addr or "unknown"
 
 def _get_chat_history(client_id: str) -> list[dict]:
@@ -154,7 +151,7 @@ def _clear_chat_history(client_id: str):
 
 class SimpleCache:
     def __init__(self, max_size=100, ttl=300):
-        self.cache = {}
+        self.cache: OrderedDict = OrderedDict()  # key -> (value, timestamp)
         self.max_size = max_size
         self.ttl = ttl
         self._lock = threading.Lock()
@@ -164,6 +161,7 @@ class SimpleCache:
             if key in self.cache:
                 data, timestamp = self.cache[key]
                 if time.time() - timestamp < self.ttl:
+                    self.cache.move_to_end(key)
                     return data
                 else:
                     del self.cache[key]
@@ -171,9 +169,10 @@ class SimpleCache:
 
     def set(self, key, value):
         with self._lock:
-            if len(self.cache) >= self.max_size:
-                oldest_key = min(self.cache.keys(), key=lambda k: self.cache[k][1])
-                del self.cache[oldest_key]
+            if key in self.cache:
+                self.cache.move_to_end(key)
+            elif len(self.cache) >= self.max_size:
+                self.cache.popitem(last=False)
             self.cache[key] = (value, time.time())
 
     def invalidate(self, prefix):
@@ -302,6 +301,20 @@ def list_memories():
         return jsonify({'error': str(e)}), 500
 
 
+# ============ 共享工具函数 ============
+
+def _make_llm_chat_fn(client_id: str):
+    """创建带聊天历史的 LLM 聊天闭包（供 /api/chat 和 /api/voice_dialogue 共用）"""
+    def llm_chat_fn(query, hist=None):
+        history = _get_chat_history(client_id)
+        _append_chat_history(client_id, "user", query)
+        response = call_llm_chat(query, history)
+        if response:
+            _append_chat_history(client_id, "assistant", response)
+        return response
+    return llm_chat_fn
+
+
 # ============ 核心路由（使用共享模块） ============
 
 @app.route('/api/chat', methods=['POST'])
@@ -312,20 +325,14 @@ def chat():
     user_text = data.get('text', '').strip()
     if not user_text:
         return jsonify({'error': '请输入内容'}), 400
+    if len(user_text) > 4000:
+        return jsonify({'error': '输入内容过长'}), 400
 
     conn = get_db_conn()
     vault_root = get_vault_root()
     client_id = _get_client_id()
 
-    # 构建带历史的 LLM 聊天函数
-    def llm_chat_fn(query, hist=None):
-        history = _get_chat_history(client_id)
-        _append_chat_history(client_id, "user", query)
-        response = call_llm_chat(query, history)
-        if response:
-            _append_chat_history(client_id, "assistant", response)
-        return response
-
+    llm_chat_fn = _make_llm_chat_fn(client_id)
     result = handle_intent(conn, vault_root, user_text, call_llm_chat_fn=llm_chat_fn)
 
     if result.get('error'):
@@ -348,6 +355,8 @@ def confirm_save():
     to_save = data.get('pending_text', '').strip()
     if not to_save:
         return jsonify({'error': '没有待保存的内容'}), 400
+    if len(text) > 4000 or len(to_save) > 4000:
+        return jsonify({'error': '输入内容过长'}), 400
 
     conn = get_db_conn()
     vault_root = get_vault_root()
@@ -355,7 +364,9 @@ def confirm_save():
     reply, final_text = confirm_save_action(text, to_save)
     if final_text:
         title, summary = build_memory_metadata(final_text)
-        app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
+        mid = app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
+        if not mid:
+            return jsonify({'type': 'assistant', 'text': reply, 'warning': '保存可能未成功'})
     return jsonify({'type': 'assistant', 'text': reply})
 
 @app.route('/api/search', methods=['POST'])
@@ -407,11 +418,19 @@ def upload_file():
     conn = get_db_conn()
     vault_root = get_vault_root()
     paths = []
+    ALLOWED_UPLOAD_EXTENSIONS = {
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg',
+        '.pdf', '.doc', '.docx', '.txt', '.md', '.csv', '.json',
+        '.mp3', '.wav', '.m4a', '.ogg',
+    }
     for f in files:
         safe_name = f.filename.replace('\\', '/').replace('..', '').strip()
         safe_name = re.sub(r'[^\w\.\-一-鿿㐀-䶿]', '_', safe_name)
         if not safe_name:
             safe_name = 'unnamed_file'
+        ext = Path(safe_name).suffix.lower()
+        if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+            continue
         temp_path = vault_root / "temp" / safe_name
         temp_path.parent.mkdir(parents=True, exist_ok=True)
         if hasattr(f, 'content_length') and f.content_length > 10 * 1024 * 1024:
@@ -576,15 +595,7 @@ def voice_dialogue():
                 resp['audio'] = None
             return jsonify(resp)
 
-        # 构建带历史的 LLM 聊天函数
-        def llm_chat_fn(query, hist=None):
-            history = _get_chat_history(client_id)
-            _append_chat_history(client_id, "user", query)
-            response = call_llm_chat(query, history)
-            if response:
-                _append_chat_history(client_id, "assistant", response)
-            return response
-
+        llm_chat_fn = _make_llm_chat_fn(client_id)
         result = handle_intent(conn, vault_root, user_text, call_llm_chat_fn=llm_chat_fn)
 
         if result.get('error'):
@@ -639,8 +650,6 @@ def is_path_under(path: Path, parent: Path) -> bool:
 
 def _is_safe_path(file_path):
     try:
-        if '..' in file_path or '~' in file_path:
-            return False, "检测到路径遍历"
         p = Path(file_path).resolve()
         ext = p.suffix.lower()
         if ext not in IMAGE_MIME_TYPES:
@@ -778,9 +787,12 @@ def get_stats():
         vault_root = get_vault_root()
         storage_size = 0
         if vault_root.exists():
-            for f in vault_root.rglob("*"):
-                if f.is_file():
-                    storage_size += f.stat().st_size
+            for dirpath, _dirnames, filenames in os.walk(str(vault_root)):
+                for fn in filenames:
+                    try:
+                        storage_size += os.path.getsize(os.path.join(dirpath, fn))
+                    except OSError:
+                        pass
 
         stats = {
             'total_memories': total_memories,

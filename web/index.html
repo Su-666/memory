@@ -1469,6 +1469,102 @@
                 padding: 2px 6px;
             }
         }
+
+        /* 文件上传暂存区样式 */
+        .file-pending-area {
+            background: linear-gradient(135deg, rgba(255, 248, 240, 0.95) 0%, rgba(255, 250, 239, 0.95) 100%);
+            border: 2px dashed rgba(218, 165, 32, 0.3);
+            border-radius: var(--radius-sm);
+            padding: 14px 18px;
+            margin-bottom: 10px;
+            display: none;
+            backdrop-filter: blur(10px);
+        }
+        .file-pending-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: var(--gold);
+            font-weight: 600;
+        }
+        .file-pending-list {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .file-preview-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(15, 118, 110, 0.08);
+            border-radius: var(--radius-xs);
+            padding: 6px 12px;
+            font-size: 13px;
+            max-width: 200px;
+            backdrop-filter: blur(6px);
+        }
+        .file-preview-thumb {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .file-preview-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-primary);
+        }
+        .file-remove-btn {
+            color: #b54a35;
+            cursor: pointer;
+            margin-left: 6px;
+            font-size: 16px;
+            line-height: 1;
+            transition: color 0.2s;
+        }
+        .file-remove-btn:hover {
+            color: #dc2626;
+        }
+        .file-upload-actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn-confirm-upload {
+            background: var(--user-bg);
+            color: white;
+            border: none;
+            border-radius: var(--radius-xs);
+            padding: 8px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s var(--transition);
+        }
+        .btn-confirm-upload:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(15, 118, 110, 0.2);
+        }
+        .btn-cancel-upload {
+            background: var(--glass-bg);
+            color: var(--text-muted);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--radius-xs);
+            padding: 8px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.25s var(--transition);
+            backdrop-filter: blur(6px);
+        }
+        .btn-cancel-upload:hover {
+            background: rgba(255, 255, 255, 0.95);
+            border-color: rgba(15, 118, 110, 0.12);
+        }
     </style>
 </head>
 <body>
@@ -1576,9 +1672,6 @@
 
     <script>
         let chatHistory = [];
-        let isRecording = false;
-        let mediaRecorder = null;
-        let audioChunks = [];
         let pendingSaveText = null;
 
         // 缓存常用 DOM 引用（避免重复查询）
@@ -1595,7 +1688,21 @@
         const $modalImage = document.getElementById('modal-image');
         const $modalError = document.getElementById('modal-error');
 
-        const sendBtn = $sendBtn; // 兼容旧代码引用
+        // 欢迎屏幕模板（避免重复 HTML）
+        function getWelcomeHTML() {
+            return `<div class="welcome">
+                <div class="welcome-icon">🌸</div>
+                <h2>嗨，我是暖暖~</h2>
+                <p>告诉我你想记住什么，或者问我"之前记过啥"</p>
+                <p style="font-size:13px; opacity:0.7;">点击 🎤 可以语音聊天哦</p>
+                <div class="tips">
+                    <div class="tip-item">💬 说：「帮我记住手机号138xxxx」</div>
+                    <div class="tip-item">🔍 问：「我之前记过什么？」</div>
+                    <div class="tip-item">🎤 点麦克风开始语音聊天</div>
+                    <div class="tip-item">📁 拖文件到输入框可以上传</div>
+                </div>
+            </div>`;
+        }
 
         // 语音对话相关变量
         let isVoiceMode = false; // 语音对话模式（自动朗读回复+连续对话）
@@ -1628,7 +1735,8 @@
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
             const icons = { success: '✅', error: '❌', info: '💡' };
-            toast.innerHTML = `<span>${icons[type] || icons.info}</span><span>${message}</span>`;
+            const safeMsg = String(message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            toast.innerHTML = `<span>${icons[type] || icons.info}</span><span>${safeMsg}</span>`;
             container.appendChild(toast);
             setTimeout(() => {
                 toast.classList.add('toast-out');
@@ -2000,11 +2108,12 @@
                 `;
                 
             } catch (error) {
+                const safeErrMsg = String(error.message).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
                 content.innerHTML = `
                     <div style="text-align: center; padding: 40px; color: var(--text-muted);">
                         <div style="font-size: 48px; margin-bottom: 10px;">😢</div>
                         <div style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">加载失败</div>
-                        <div style="font-size: 13px; opacity: 0.7;">${error.message}</div>
+                        <div style="font-size: 13px; opacity: 0.7;">${safeErrMsg}</div>
                     </div>
                 `;
             }
@@ -2392,52 +2501,53 @@
             }
         }
 
+        // 共享音频播放逻辑：base64 → blob → 播放 → 超时安全阀 → 回调
+        async function playAudioFromBase64(audioB64, timeoutMs) {
+            const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
+            const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
+
+            if (window._currentAudio) {
+                window._currentAudio.pause();
+                window._currentAudio = null;
+            }
+
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            window._currentAudio = audio;
+
+            const speakTimeout = setTimeout(() => {
+                console.warn('[TTS] 朗读超时，自动继续');
+                if (window._currentAudio === audio) {
+                    audio.pause();
+                    window._currentAudio = null;
+                    URL.revokeObjectURL(audioUrl);
+                }
+                continueVoiceLoop();
+            }, timeoutMs);
+
+            audio.onended = () => {
+                clearTimeout(speakTimeout);
+                URL.revokeObjectURL(audioUrl);
+                if (window._currentAudio === audio) window._currentAudio = null;
+                continueVoiceLoop();
+            };
+
+            audio.onerror = () => {
+                clearTimeout(speakTimeout);
+                URL.revokeObjectURL(audioUrl);
+                if (window._currentAudio === audio) window._currentAudio = null;
+                continueVoiceLoop();
+            };
+
+            setStatus('🔊 正在朗读...');
+            voiceTtsStartTime = Date.now();
+            await audio.play();
+        }
+
         // 播放 base64 编码的语音音频（从 voice_dialogue 返回）
         async function playVoiceAudio(audioB64) {
             try {
-                const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
-                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
-
-                if (window._currentAudio) {
-                    window._currentAudio.pause();
-                    window._currentAudio = null;
-                }
-
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const audio = new Audio(audioUrl);
-                audio._blobUrl = audioUrl;
-                window._currentAudio = audio;
-
-                // 安全阀
-                const speakTimeout = setTimeout(() => {
-                    console.warn('[TTS] 朗读超时，自动继续');
-                    if (window._currentAudio === audio) {
-                        audio.pause();
-                        window._currentAudio = null;
-                        URL.revokeObjectURL(audioUrl);
-                    }
-                    continueVoiceLoop();
-                }, 30000);
-
-                // 先绑定事件，再播放
-                audio.onended = () => {
-                    clearTimeout(speakTimeout);
-                    URL.revokeObjectURL(audioUrl);
-                    if (window._currentAudio === audio) window._currentAudio = null;
-                    continueVoiceLoop();
-                };
-
-                audio.onerror = () => {
-                    clearTimeout(speakTimeout);
-                    URL.revokeObjectURL(audioUrl);
-                    if (window._currentAudio === audio) window._currentAudio = null;
-                    continueVoiceLoop();
-                };
-
-                setStatus('🔊 正在朗读...');
-                voiceTtsStartTime = Date.now(); // handleVAD 用此延迟打断检测
-                await audio.play();
-
+                await playAudioFromBase64(audioB64, 30000);
             } catch (e) {
                 console.error('语音播放失败:', e);
                 continueVoiceLoop();
@@ -2673,20 +2783,7 @@
 
         function clearChat() {
             if (confirm('确定要清空所有对话记录吗？此操作不可撤销。')) {
-                $chatView.innerHTML = `
-                    <div class="welcome">
-                        <div class="welcome-icon">🌸</div>
-                        <h2>嗨，我是暖暖~</h2>
-                        <p>告诉我你想记住什么，或者问我"之前记过啥"</p>
-                        <p style="font-size:13px; opacity:0.7;">点击 🎤 可以语音聊天哦</p>
-                        <div class="tips">
-                            <div class="tip-item">💬 说：「帮我记住手机号138xxxx」</div>
-                            <div class="tip-item">🔍 问：「我之前记过什么？」</div>
-                            <div class="tip-item">🎤 点麦克风开始语音聊天</div>
-                            <div class="tip-item">📁 拖文件到输入框可以上传</div>
-                        </div>
-                    </div>
-                `;
+                $chatView.innerHTML = getWelcomeHTML();
                 pendingSaveText = null;
                 showPendingIndicator(false);
                 chatHistory = [];
@@ -2841,51 +2938,7 @@
                     return;
                 }
 
-                const audioB64 = data.audio;
-                const audioBytes = Uint8Array.from(atob(audioB64), c => c.charCodeAt(0));
-                const audioBlob = new Blob([audioBytes], { type: 'audio/mpeg' });
-
-                if (window._currentAudio) {
-                    window._currentAudio.pause();
-                    window._currentAudio = null;
-                }
-
-                const audioUrl = URL.createObjectURL(audioBlob);
-                const audio = new Audio(audioUrl);
-                audio._blobUrl = audioUrl;
-                window._currentAudio = audio;
-
-                // 安全阀：朗读超时后自动继续（防止卡住）
-                const speakTimeout = setTimeout(() => {
-                    console.warn('[TTS] 朗读超时，自动继续');
-                    if (window._currentAudio === audio) {
-                        audio.pause();
-                        window._currentAudio = null;
-                        URL.revokeObjectURL(audioUrl);
-                    }
-                    continueVoiceLoop();
-                }, (cleanText.length * 200) + 15000);
-
-                // 【关键】先绑定事件处理器，再调用 play()，防止短音频在绑定前就播完
-                audio.onended = () => {
-                    clearTimeout(speakTimeout);
-                    URL.revokeObjectURL(audioUrl);
-                    if (window._currentAudio === audio) {
-                        window._currentAudio = null;
-                    }
-                    continueVoiceLoop();
-                };
-
-                audio.onerror = () => {
-                    clearTimeout(speakTimeout);
-                    URL.revokeObjectURL(audioUrl);
-                    if (window._currentAudio === audio) window._currentAudio = null;
-                    continueVoiceLoop();
-                };
-
-                setStatus('🔊 正在朗读...');
-                voiceTtsStartTime = Date.now();
-                await audio.play();
+                await playAudioFromBase64(data.audio, (cleanText.length * 200) + 15000);
 
             } catch (e) {
                 console.error('语音播放失败:', e);
@@ -2895,109 +2948,6 @@
 
         // 文件暂存区
         let pendingFiles = [];
-
-        // 添加文件上传按钮样式
-        const fileUploadStyle = `
-            .file-pending-area {
-                background: linear-gradient(135deg, rgba(255, 248, 240, 0.95) 0%, rgba(255, 250, 239, 0.95) 100%);
-                border: 2px dashed rgba(218, 165, 32, 0.3);
-                border-radius: var(--radius-sm);
-                padding: 14px 18px;
-                margin-bottom: 10px;
-                display: none;
-                backdrop-filter: blur(10px);
-            }
-            .file-pending-header {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 12px;
-                font-size: 13px;
-                color: var(--gold);
-                font-weight: 600;
-            }
-            .file-pending-list {
-                display: flex;
-                gap: 8px;
-                flex-wrap: wrap;
-                margin-bottom: 12px;
-            }
-            .file-preview-item {
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                background: rgba(255, 255, 255, 0.9);
-                border: 1px solid rgba(15, 118, 110, 0.08);
-                border-radius: var(--radius-xs);
-                padding: 6px 12px;
-                font-size: 13px;
-                max-width: 200px;
-                backdrop-filter: blur(6px);
-            }
-            .file-preview-thumb {
-                width: 36px;
-                height: 36px;
-                border-radius: 8px;
-                object-fit: cover;
-                flex-shrink: 0;
-            }
-            .file-preview-name {
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-                color: var(--text-primary);
-            }
-            .file-remove-btn {
-                color: #b54a35;
-                cursor: pointer;
-                margin-left: 6px;
-                font-size: 16px;
-                line-height: 1;
-                transition: color 0.2s;
-            }
-            .file-remove-btn:hover {
-                color: #dc2626;
-            }
-            .file-upload-actions {
-                display: flex;
-                gap: 8px;
-            }
-            .btn-confirm-upload {
-                background: var(--user-bg);
-                color: white;
-                border: none;
-                border-radius: var(--radius-xs);
-                padding: 8px 20px;
-                font-size: 13px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.25s var(--transition);
-            }
-            .btn-confirm-upload:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 4px 14px rgba(15, 118, 110, 0.2);
-            }
-            .btn-cancel-upload {
-                background: var(--glass-bg);
-                color: var(--text-muted);
-                border: 1px solid var(--glass-border);
-                border-radius: var(--radius-xs);
-                padding: 8px 16px;
-                font-size: 13px;
-                cursor: pointer;
-                transition: all 0.25s var(--transition);
-                backdrop-filter: blur(6px);
-            }
-            .btn-cancel-upload:hover {
-                background: rgba(255, 255, 255, 0.95);
-                border-color: rgba(15, 118, 110, 0.12);
-            }
-        `;
-        
-        // 插入样式
-        const styleSheet = document.createElement('style');
-        styleSheet.textContent = fileUploadStyle;
-        document.head.appendChild(styleSheet);
 
         // 创建暂存区域
         const inputArea = document.getElementById('drop-area');

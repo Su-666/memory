@@ -86,13 +86,13 @@ def update_memory(
     body: str | None = None,
     extra_patch: dict[str, Any] | None = None,
     commit: bool = True,
-) -> None:
+) -> bool:
     row = conn.execute(
         "SELECT title, summary, body, extra_json FROM memories WHERE id = ?",
         (int(memory_id),),
     ).fetchone()
     if not row:
-        return
+        return False
     new_title = title if title is not None else row["title"]
     new_summary = summary if summary is not None else row["summary"]
     new_body = body if body is not None else row["body"]
@@ -105,6 +105,7 @@ def update_memory(
     )
     if commit:
         conn.commit()
+    return True
 
 
 def remember_text_smart(conn: sqlite3.Connection, *, text: str, vault_root: Path, title: str, summary: str) -> int:

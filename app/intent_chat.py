@@ -192,6 +192,30 @@ def build_memory_metadata(text: str) -> tuple[str, str]:
     return (fallback_title, fallback_summary)
 
 
+def build_memory_metadata_fast(text: str) -> tuple[str, str]:
+    """从用户输入中提取标题和摘要（仅本地逻辑，不调用 LLM，用于快速保存路径）"""
+    title = ""
+    if "我的" in text and ("是" in text or ":" in text or "：" in text):
+        parts = text.replace("：", ":").split(":")
+        if len(parts) >= 2:
+            title = parts[0].strip()[:20]
+        else:
+            parts = text.split("是")
+            if len(parts) >= 2:
+                title = ("我的" + parts[1].strip())[:20] if "我的" in parts[0] else parts[0].strip()[:20]
+
+    if not title:
+        keywords = ["密码", "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "身份证", "车牌"]
+        for kw in keywords:
+            if kw in text:
+                title = f"我的{kw}"
+                break
+
+    fallback_title = title or ((text[:18] + "…") if len(text) > 18 else (text or "记忆"))
+    fallback_summary = (text[:80] + "…") if len(text) > 80 else (text or "记忆")
+    return (fallback_title, fallback_summary)
+
+
 # ============ 搜索记忆 ============
 
 def search_memory(conn, user_text: str, limit: int = 5) -> list:
@@ -305,7 +329,7 @@ def handle_intent(conn, vault_root: Path, user_text: str, call_llm_chat_fn=None,
                 "saved": False,
             }
         try:
-            title, summary = build_memory_metadata(user_text)
+            title, summary = build_memory_metadata_fast(user_text)
             app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
             return {
                 "text": random.choice(_SAVE_REPLIES),

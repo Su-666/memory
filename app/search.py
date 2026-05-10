@@ -167,10 +167,10 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
         like_terms = tokens or [q]
         wheres: list[str] = []
         params: list[str] = []
-        for t in like_terms[:6]:
+        for t in like_terms[:3]:
             t = t.replace(chr(92), chr(92)*2).replace(chr(37), chr(92)+chr(37)).replace(chr(95), chr(92)+chr(95))
-            wheres.append("(title LIKE ? OR summary LIKE ? OR body LIKE ?)")
-            params.extend([f"%{t}%", f"%{t}%", f"%{t}%"])
+            wheres.append("(title LIKE ? OR summary LIKE ?)")
+            params.extend([f"%{t}%", f"%{t}%"])
         where_sql = " OR ".join(wheres) if wheres else "(title LIKE ? OR summary LIKE ? OR body LIKE ?)"
         if not params:
             params = [f"%{q}%", f"%{q}%", f"%{q}%"]
@@ -182,7 +182,8 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
             fp = str(row["file_path"] or "").strip()
             if fp and not _path_exists(fp, file_exists_cache):
                 continue
-            text = f"{row['title']} {row['summary']} {row['body']}"
+            body_preview = (row['body'] or '')[:500]
+            text = f"{row['title']} {row['summary']} {body_preview}"
             results.append(
                 {
                     "entity_type": "memory",

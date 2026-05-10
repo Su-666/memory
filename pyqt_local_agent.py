@@ -365,6 +365,16 @@ class VoiceWorker(QObject):
         self._is_speaking = False
         self._playback_stop_flag: list = []
 
+    @staticmethod
+    def _pcm_to_wav(pcm: bytes, sample_rate: int = 16000) -> bytes:
+        wav_buf = io.BytesIO()
+        with wave.open(wav_buf, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm)
+        return wav_buf.getvalue()
+
     def stop(self) -> None:
         self._stop_requested = True
         if self._is_speaking:
@@ -410,13 +420,7 @@ class VoiceWorker(QObject):
             return
 
         # 将 PCM 转为 WAV 发送到服务端
-        wav_buf = io.BytesIO()
-        with wave.open(wav_buf, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sample_rate)
-            wf.writeframes(pcm)
-        wav_bytes = wav_buf.getvalue()
+        wav_bytes = self._pcm_to_wav(pcm, sample_rate)
 
         try:
             result = self._api.speech_recognize(wav_bytes)
@@ -482,13 +486,7 @@ class VoiceWorker(QObject):
                     continue
 
                 # PCM -> WAV -> 服务端 ASR
-                wav_buf = io.BytesIO()
-                with wave.open(wav_buf, 'wb') as wf:
-                    wf.setnchannels(1)
-                    wf.setsampwidth(2)
-                    wf.setframerate(sample_rate)
-                    wf.writeframes(pcm)
-                wav_bytes = wav_buf.getvalue()
+                wav_bytes = self._pcm_to_wav(pcm, sample_rate)
 
                 self.status_changed.emit("正在识别...", False)
                 try:
@@ -602,6 +600,13 @@ class StatsDialog(QDialog):
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, 0, Qt.AlignRight)
 
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
     def _load_stats(self):
         def _do():
             try:
@@ -612,12 +617,7 @@ class StatsDialog(QDialog):
         threading.Thread(target=_do, daemon=True).start()
 
     def _render_stats(self, stats: dict):
-        # 清空
-        while self._stats_container.count():
-            item = self._stats_container.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
+        self._clear_layout(self._stats_container)
 
         items = [
             ("总记忆数", str(stats.get("total_memories", 0))),
@@ -670,11 +670,7 @@ class StatsDialog(QDialog):
             self._stats_container.addLayout(tags_layout)
 
     def _show_error(self, msg: str):
-        while self._stats_container.count():
-            item = self._stats_container.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
+        self._clear_layout(self._stats_container)
         err = QLabel(f"加载失败: {msg}")
         if self._dark_mode:
             err.setStyleSheet("color:#e87a5a; font-size:14px;")
@@ -743,6 +739,8 @@ class AgentWindow(QMainWindow):
     _chat_error_signal = pyqtSignal(str)
     _upload_result_signal = pyqtSignal(dict)
     _upload_error_signal = pyqtSignal(str)
+    _confirm_save_result_signal = pyqtSignal(str)
+    _confirm_save_error_signal = pyqtSignal(str)
     _voice_result_signal = pyqtSignal(str, object, object)
     _voice_error_signal = pyqtSignal(str)
     _update_bar_signal = pyqtSignal(str, str)
@@ -839,7 +837,7 @@ class AgentWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.setWindowTitle("暖暖")
         self.resize(820, 960)
-        self.setMinimumSize(620, 780)
+        self.setMinimumSize(480, 600)
 
         root = QWidget()
         root.setObjectName("rootWidget")
@@ -1106,8 +1104,8 @@ class AgentWindow(QMainWindow):
     def eventFilter(self, obj, event) -> bool:
         # 先检查事件类型，绝大多数事件都不是 KeyPress，直接跳过
         if event.type() == 6:  # KeyPress
-            target = obj if isinstance(obj, QTextBrowser) else obj.parent()
-            if isinstance(target, QTextBrowser):
+            # 只拦截主聊天视图的按键，不拦截子 QTextBrowser 的导航
+            if obj is self.chat_view.viewport():
                 key = event.key()
                 if key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Left, Qt.Key_Right):
                     return True
@@ -1474,48 +1472,57 @@ class AgentWindow(QMainWindow):
         p = Path(file_path)
         if p.exists():
             if sys.platform == "win32":
-                subprocess.Popen(f'explorer /select,"{p}"')
-            else:
                 os.startfile(str(p))
+            else:
+                subprocess.Popen(["xdg-open", str(p)])
         else:
             self._append_assistant("文件不存在，可能已被移动或删除。")
 
+    def _bubble_styles(self) -> dict:
+        if self._dark_mode:
+            return {
+                "user_bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0f766e,stop:0.5 #14a89a,stop:1 #0d6b64)",
+                "user_border": "rgba(20,168,154,0.3)",
+                "user_title_color": "#88dcc8",
+                "user_text_color": "#f0fffd",
+                "asst_bg": "rgba(22,38,35,0.92)",
+                "asst_border": "rgba(20,168,154,0.08)",
+                "asst_title_color": "#7ab8a8",
+                "asst_text_color": "#c8e0d8",
+            }
+        else:
+            return {
+                "user_bg": "qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:0.5 #0f766e,stop:1 #14a89a)",
+                "user_border": "rgba(15,118,110,0.15)",
+                "user_title_color": "#88dcc8",
+                "user_text_color": "#f0fffd",
+                "asst_bg": "rgba(255,255,255,0.85)",
+                "asst_border": "rgba(15,118,110,0.06)",
+                "asst_title_color": "#5a8a7e",
+                "asst_text_color": "#1a3330",
+            }
+
     def _append_user(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
-        if self._dark_mode:
-            w = self._make_bubble(
-                align_right=True, title="", html_body=safe, plain_text=text,
-                bg="qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0f766e,stop:0.5 #14a89a,stop:1 #0d6b64)",
-                border="rgba(20,168,154,0.3)", title_color="#88dcc8", text_color="#f0fffd",
-                show_title=False, pad_x=self._bubble_user_pad_x,
-                body_font_px=self._bubble_user_body_font_px,
-            )
-        else:
-            w = self._make_bubble(
-                align_right=True, title="", html_body=safe, plain_text=text,
-                bg="qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #0d6b64,stop:0.5 #0f766e,stop:1 #14a89a)",
-                border="rgba(15,118,110,0.15)", title_color="#88dcc8", text_color="#f0fffd",
-                show_title=False, pad_x=self._bubble_user_pad_x,
-                body_font_px=self._bubble_user_body_font_px,
-            )
+        s = self._bubble_styles()
+        w = self._make_bubble(
+            align_right=True, title="", html_body=safe, plain_text=text,
+            bg=s["user_bg"], border=s["user_border"],
+            title_color=s["user_title_color"], text_color=s["user_text_color"],
+            show_title=False, pad_x=self._bubble_user_pad_x,
+            body_font_px=self._bubble_user_body_font_px,
+        )
         self._add_chat_widget(w)
 
     def _append_assistant(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
-        if self._dark_mode:
-            w = self._make_bubble(
-                align_right=False, title="暖暖", html_body=safe, plain_text=text,
-                bg="rgba(22,38,35,0.92)", border="rgba(20,168,154,0.08)",
-                title_color="#7ab8a8", text_color="#c8e0d8",
-                show_title=True,
-            )
-        else:
-            w = self._make_bubble(
-                align_right=False, title="暖暖", html_body=safe, plain_text=text,
-                bg="rgba(255,255,255,0.85)", border="rgba(15,118,110,0.06)",
-                title_color="#5a8a7e", text_color="#1a3330",
-                show_title=True,
-            )
+        s = self._bubble_styles()
+        w = self._make_bubble(
+            align_right=False, title="暖暖", html_body=safe, plain_text=text,
+            bg=s["asst_bg"], border=s["asst_border"],
+            title_color=s["asst_title_color"], text_color=s["asst_text_color"],
+            show_title=True,
+        )
         self._add_chat_widget(w)
 
     def _append_cards(self, items: list[dict[str, Any]]) -> None:
@@ -1586,6 +1593,8 @@ class AgentWindow(QMainWindow):
         self._voice_result_signal.connect(self._process_voice_result)
         self._voice_error_signal.connect(lambda e: self._append_assistant(f"语音处理失败了：{e}"))
         self._update_bar_signal.connect(self._show_update_bar)
+        self._confirm_save_result_signal.connect(self._on_confirm_save_result)
+        self._confirm_save_error_signal.connect(self._on_confirm_save_error)
 
         # 健康检查（智能退避：在线时 15s，断线后逐步增长到 60s）
         self._health_fail_count = 0
@@ -1691,7 +1700,6 @@ class AgentWindow(QMainWindow):
 
         pending_response = self._resolve_pending_save(text)
         if pending_response is not None:
-            self._append_assistant(pending_response)
             self.command_input.clear()
             return
 
@@ -1777,17 +1785,36 @@ class AgentWindow(QMainWindow):
         self._set_status("准备就绪")
 
     def _resolve_pending_save(self, text: str) -> str | None:
+        """尝试处理待确认的保存。返回 None 表示无待确认，返回 '' 表示已异步发起。"""
         if self._pending_save_text is None:
             return None
-        try:
-            result = self._api.confirm_save(text, self._pending_save_text)
-            self._pending_save_text = None
-            self._pending_bar.setVisible(False)
-            return result.get("text", "好的，已处理。")
-        except Exception as e:
-            self._pending_save_text = None
-            self._pending_bar.setVisible(False)
-            return f"处理失败：{e}"
+        pending = self._pending_save_text
+        self._pending_save_text = None
+        self._pending_bar.setVisible(False)
+
+        def _do():
+            try:
+                result = self._api.confirm_save(text, pending)
+                self._confirm_save_result_signal.emit(result.get("text", "好的，已处理。"))
+            except Exception as e:
+                self._confirm_save_error_signal.emit(str(e))
+
+        self._show_typing_indicator()
+        self._set_status("正在处理保存确认…")
+        threading.Thread(target=_do, daemon=True).start()
+        return ""  # 返回空字符串表示已异步处理
+
+    def _on_confirm_save_result(self, text: str) -> None:
+        self._hide_typing_indicator()
+        self._append_assistant(text)
+        self._set_status("准备就绪")
+        if self.voice_worker and self.voice_worker.isRunning():
+            self.voice_worker.speak_text(text)
+
+    def _on_confirm_save_error(self, error: str) -> None:
+        self._hide_typing_indicator()
+        self._append_assistant(f"处理失败：{error}")
+        self._set_status("准备就绪")
 
     def _handle_chat_submit_drop(self, payload: DropSubmit) -> None:
         paths = payload.paths or []
@@ -1876,9 +1903,6 @@ class AgentWindow(QMainWindow):
 
         pending_response = self._resolve_pending_save(text)
         if pending_response is not None:
-            self._append_assistant(pending_response)
-            if self.voice_worker:
-                self.voice_worker.speak_text(pending_response)
             return
 
         def _do():
