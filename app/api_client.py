@@ -4,6 +4,8 @@ HTTP API 客户端 - 桌面端通过此模块与 Flask 后端通信
 
 v2: 增加重试、退避、SSL 修复、超时分离、错误分类
 """
+from __future__ import annotations
+
 import json
 import mimetypes
 import os

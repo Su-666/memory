@@ -275,20 +275,24 @@ def performance_monitor(f):
     return decorated_function
 
 
-def http_cache(max_age=0):
-    """Decorator to add Cache-Control headers to JSON responses."""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            response = f(*args, **kwargs)
-            if hasattr(response, 'headers'):
-                if max_age > 0:
-                    response.headers['Cache-Control'] = f'public, max-age={max_age}'
-                else:
-                    response.headers['Cache-Control'] = 'no-cache, no-store'
+# HTTP Cache-Control headers by endpoint path prefix
+_CACHE_MAX_AGES = {
+    '/api/tags': 300,
+    '/api/stats': 60,
+    '/api/memories/recent': 30,
+    '/api/version': 3600,
+}
+
+
+@app.after_request
+def add_cache_headers(response):
+    """Add Cache-Control headers based on endpoint."""
+    path = request.path
+    for prefix, max_age in _CACHE_MAX_AGES.items():
+        if path.startswith(prefix):
+            response.headers['Cache-Control'] = f'public, max-age={max_age}'
             return response
-        return decorated_function
-    return decorator
+    return response
 
 # ============ 路由 ============
 
@@ -297,7 +301,6 @@ def index():
     return send_from_directory('.', 'index.html')
 
 @app.route('/api/health')
-@http_cache(max_age=0)
 def health():
     return jsonify({"status": "ok", "service": "nuan-nuan-memory", "version": APP_VERSION})
 
@@ -711,7 +714,6 @@ def get_image():
 @app.route('/api/memories/recent', methods=['GET'])
 @rate_limit
 @performance_monitor
-@http_cache(max_age=30)
 @cached_response(lambda: f"recent_memories:{request.args.get('limit', '10')}", ttl=60)
 def recent_memories():
     conn = get_db_conn()
@@ -755,7 +757,6 @@ def search_memories_advanced():
 @app.route('/api/tags', methods=['GET'])
 @rate_limit
 @performance_monitor
-@http_cache(max_age=300)
 @cached_response(lambda: "all_tags", ttl=300)
 def get_all_tags():
     try:
@@ -777,7 +778,6 @@ def get_all_tags():
 @app.route('/api/stats', methods=['GET'])
 @rate_limit
 @performance_monitor
-@http_cache(max_age=60)
 @cached_response(lambda: "stats", ttl=60)
 def get_stats():
     try:
