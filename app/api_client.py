@@ -25,6 +25,8 @@ try:
 except ImportError:
     _SSL_CTX = ssl.create_default_context()
 
+_DEFAULT_SERVER = os.environ.get("SERVER_URL", "https://memory-n.ccwu.cc")
+
 
 class ApiError(Exception):
     """API 调用异常"""
@@ -41,8 +43,8 @@ class MemoryApiClient:
     MAX_RETRIES = 3
     RETRY_DELAYS = [1.0, 2.5, 5.0]  # 指数退避秒数
 
-    def __init__(self, base_url: str = "https://memory-n.ccwu.cc", client_id: str = "", timeout: int = 60):
-        self.base_url = base_url.rstrip("/")
+    def __init__(self, base_url: str = "", client_id: str = "", timeout: int = 60):
+        self.base_url = (base_url or _DEFAULT_SERVER).rstrip("/")
         self.client_id = client_id
         self.timeout = timeout
         self._connected = False  # 连接状态缓存

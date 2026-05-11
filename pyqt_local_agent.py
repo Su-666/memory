@@ -923,6 +923,17 @@ class AgentWindow(QMainWindow):
         stats_btn.clicked.connect(self._show_stats)
         right_col.addWidget(stats_btn)
 
+        # 服务器设置按钮
+        server_btn = RoundButton("⚙", bg_color="#ffffffbf", text_color="#0f766e",
+                                 border_color="#1211806e", hover_bg="#ffffff",
+                                 hover_text="#0f766e", radius=18, font_size=16)
+        server_btn.setObjectName("headerServerBtn")
+        server_btn.setCursor(Qt.PointingHandCursor)
+        server_btn.setFixedSize(36, 36)
+        server_btn.setToolTip("切换本地/远程服务器")
+        server_btn.clicked.connect(self._show_server_settings)
+        right_col.addWidget(server_btn)
+
         self.clear_btn = RoundButton("清空对话", bg_color="#d9fff8ee", text_color="#8a6a38",
                                     border_color="#80d8d8b8", hover_bg="#fffdf9",
                                     hover_text="#b84a2a", radius=18, font_size=13, font_weight=600)
@@ -1571,8 +1582,10 @@ class AgentWindow(QMainWindow):
             self._settings.setValue("client/id", self._client_id)
 
         server_url = self._settings.value("server/url", "", type=str)
-        if not server_url or "localhost" in server_url:
-            server_url = "https://memory-n.ccwu.cc"
+        if not server_url:
+            # 自动检测：优先本地服务，不可用则使用远程
+            server_url = self._detect_server()
+            self._settings.setValue("server/url", server_url)
         self._api = MemoryApiClient(base_url=server_url, client_id=self._client_id, timeout=60)
         with open(_LOG_FILE, "a", encoding="utf-8") as _f:
             _f.write(f"Server URL: {server_url}\n")
@@ -1603,6 +1616,37 @@ class AgentWindow(QMainWindow):
         self._health_timer.timeout.connect(self._check_health)
         self._health_timer.start(self._health_base_interval)
         self._check_health()
+
+    _REMOTE_SERVER = "https://memory-n.ccwu.cc"
+    _LOCAL_SERVER = "http://127.0.0.1:5000"
+
+    def _detect_server(self) -> str:
+        """自动检测可用服务器：先尝试本地，再尝试远程"""
+        import urllib.request
+        for url in (self._LOCAL_SERVER, self._REMOTE_SERVER):
+            try:
+                req = urllib.request.Request(f"{url}/api/health", headers={"Accept": "application/json"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    if resp.status == 200:
+                        return url
+            except Exception:
+                continue
+        return self._REMOTE_SERVER
+
+    def _show_server_settings(self):
+        """弹出服务器地址设置对话框"""
+        from PyQt5.QtWidgets import QInputDialog
+        current = self._settings.value("server/url", self._REMOTE_SERVER, type=str)
+        url, ok = QInputDialog.getText(
+            self, "服务器设置", "服务器地址：\n（本地: http://127.0.0.1:5000\n 远程: https://memory-n.ccwu.cc）",
+            text=current
+        )
+        if ok and url.strip():
+            url = url.strip().rstrip("/")
+            self._settings.setValue("server/url", url)
+            self._api = MemoryApiClient(base_url=url, client_id=self._client_id, timeout=60)
+            self._append_assistant(f"已切换到服务器：{url}\n正在重新连接...")
+            self._check_health()
 
     def _check_health(self):
         if self._api is None:

@@ -13,11 +13,15 @@ from urllib import request as http_request
 
 logger = logging.getLogger(__name__)
 
-_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+_DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+
+def _get_base_url() -> str:
+    return os.getenv("LLM_BASE_URL", "").strip() or _DEFAULT_BASE_URL
 
 
 def _get_api_key() -> str:
-    return os.getenv("ZHIPU_API_KEY", "").strip()
+    return os.getenv("LLM_API_KEY", "").strip() or os.getenv("ZHIPU_API_KEY", "").strip()
 
 
 def _get_model(env_key: str = "LOCAL_AGENT_MODEL", default: str = "glm-4-flash-250414") -> str:
@@ -46,7 +50,7 @@ def call_chat(
     """
     api_key = _get_api_key()
     if not api_key:
-        raise RuntimeError("未配置 ZHIPU_API_KEY")
+        raise RuntimeError("未配置 API Key（请在管理后台配置模型厂商）")
 
     model = model or _get_model()
     payload: dict[str, Any] = {
@@ -59,7 +63,7 @@ def call_chat(
     if tools:
         payload["tools"] = tools
 
-    url = f"{_BASE_URL}/chat/completions"
+    url = f"{_get_base_url()}/chat/completions"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {
         "Authorization": f"Bearer {api_key}",

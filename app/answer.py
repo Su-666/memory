@@ -74,7 +74,7 @@ def _call_answer_model(query: str, memories: list[dict[str, Any]]) -> AnswerResu
     ]
 
     try:
-        data = call_chat(messages, temperature=0.1, max_tokens=300, timeout=15, retries=1)
+        data = call_chat(messages, temperature=0.1, max_tokens=300, timeout=20, retries=2)
         content = extract_text(data["choices"][0]["message"]["content"])
         parsed = parse_json_block(content)
         answer = str(parsed.get("answer", "")).strip()

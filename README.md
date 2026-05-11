@@ -1,61 +1,51 @@
 # 暖暖记忆助手 v6.0
 
-一个基于大语言模型的个人记忆管理助手，支持桌面端和 Web 端两种使用模式。用户可以通过文字或语音与"暖暖"对话，保存想法、联系人、备忘等内容到本地数据库，并随时搜索回忆。
+一个基于大语言模型的个人记忆管理助手，支持 Web 端和桌面端两种使用方式。用户可以通过文字、语音或图片与"暖暖"对话，保存想法、联系人、备忘等内容，并随时搜索回忆。
 
-## 功能特性
+## 核心能力
 
-### 核心能力
-- **智能意图识别** - 自动判断用户是要保存记忆、搜索记忆还是闲聊
-- **记忆管理** - 保存、搜索、编辑、删除记忆，支持标签分类
-- **全文检索** - 基于 SQLite FTS5 的中文全文搜索，带相关性评分
-- **图片理解** - 上传图片自动生成描述、标签和 OCR 文字提取
-- **语音交互** - 语音识别 + 语音合成，支持语音对话模式
-- **联网搜索** - 对话模式下大模型可联网获取实时信息
-- **文件保险库** - 附件和文本记忆统一归档到 `memory_vault` 目录
-- **暗色模式** - 桌面端和 Web 端均支持亮色/暗色主题切换
-- **在线更新检查** - 桌面端启动时自动检查新版本
-
-### 两种运行模式
-
-| 模式 | 入口文件 | 说明 |
-|------|----------|------|
-| 桌面 GUI | `pyqt_local_agent.py` | PyQt5 桌面应用，连接 Railway 服务器 |
-| Web 服务 | `web/main.py` | Flask 后端 + 单页 HTML 前端，部署到 Railway |
+- **智能意图识别** — 自动判断保存、搜索、闲聊三种意图
+- **全文检索** — SQLite FTS5 中文全文搜索 + BM25 相关性排序，自动回退 LIKE 模糊匹配
+- **图片理解** — 上传图片自动生成描述、标签和 OCR 文字提取（GLM-4V）
+- **语音交互** — 百度 ASR/TTS，支持连续语音对话模式
+- **文件保险库** — 所有记忆以 Markdown 文件归档到 `memory_vault/` 目录
+- **管理员后台** — 独立 SPA 管理页面，支持数据查看、搜索、删除、导出和备份
+- **暗色模式** — Web 端和桌面端均支持亮色/暗色主题切换
 
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
+| Web 后端 | Flask + Gunicorn + Flask-CORS |
+| Web 前端 | 原生 HTML/CSS/JS 单页应用 |
 | 桌面端 | PyQt5（无边框窗口、暗色模式、动画） |
-| Web 后端 | Flask + Flask-CORS + Gunicorn |
-| Web 前端 | 原生 HTML/CSS/JS 单页应用（响应式） |
-| 数据库 | SQLite + FTS5 全文搜索 |
+| 数据库 | SQLite + FTS5 全文索引 |
 | 大模型 | 智谱 AI（GLM-4-Flash 对话，GLM-4V-Flash 图片理解） |
 | 语音 | 百度 AIP（服务端 ASR + TTS） |
-| 通信 | HTTP API（urllib） |
 
 ## 项目结构
 
 ```
 记忆助手/
-├── pyqt_local_agent.py      # 桌面端主程序（纯在线模式，连接 Railway 服务器）
+├── pyqt_local_agent.py      # 桌面端主程序
 ├── build_exe.py              # PyInstaller 打包脚本
 ├── requirements.txt          # Python 依赖
-├── .env                      # API 密钥（不提交到 Git）
 ├── Procfile                  # Railway 部署入口
-├── railway.toml              # Railway 部署配置
+├── .env                      # API 密钥（不提交到 Git）
 │
 ├── app/                      # 核心业务逻辑（桌面端和 Web 端共用）
-│   ├── db.py                 #   数据库初始化（memories 表、FTS5、触发器）
+│   ├── db.py                 #   数据库连接与表结构初始化
 │   ├── repo.py               #   记忆 CRUD、标签提取、保险库导入
 │   ├── search.py             #   FTS5 全文搜索 + LIKE 回退 + 评分排序
 │   ├── answer.py             #   基于记忆的回答生成（LLM + 本地规则）
 │   ├── intent.py             #   LLM 意图规划
 │   ├── intent_chat.py        #   统一意图路由（保存/搜索/聊天）
-│   ├── llm.py                #   智谱大模型调用（支持联网搜索）
+│   ├── llm.py                #   智谱大模型调用
 │   ├── vision.py             #   图片理解（描述、标签、OCR）
 │   ├── vault.py              #   文件保险库（附件导入、Markdown 写入）
-│   └── api_client.py         #   HTTP API 客户端（桌面端→服务端通信）
+│   ├── zhipu_client.py       #   智谱 API 统一 HTTP 客户端
+│   ├── api_client.py         #   HTTP API 客户端（桌面端→服务端通信）
+│   └── utils.py              #   工具函数
 │
 ├── ui/                       # 桌面端 UI 组件
 │   └── widgets/
@@ -63,182 +53,11 @@
 │
 └── web/                      # Web 部署目录
     ├── main.py               #   Flask 后端（全部 API 路由）
-    ├── index.html            #   单页前端（聊天、搜索、暗色模式）
+    ├── index.html            #   Web 前端 SPA
+    ├── admin.html            #   管理员后台 SPA
     ├── import_setup.py       #   路径修复（Railway 部署用）
     └── requirements.txt      #   Web 端依赖
 ```
-
-## 快速开始
-
-### 环境要求
-
-- Python 3.11+
-- Windows / macOS / Linux
-
-### 1. 安装依赖
-
-```bash
-# Web 端依赖
-pip install -r requirements.txt
-
-# 桌面端额外依赖
-pip install PyQt5
-```
-
-### 2. 配置 API 密钥
-
-在项目根目录创建 `.env` 文件：
-
-```env
-# 智谱 AI（必填 - 对话和图片理解）
-ZHIPU_API_KEY=your_zhipu_api_key
-LOCAL_AGENT_MODEL=glm-4-flash-250414
-
-# 百度语音（选填 - 语音功能需要）
-BAIDU_APP_ID=your_app_id
-BAIDU_API_KEY=your_baidu_api_key
-BAIDU_SECRET_KEY=your_baidu_secret_key
-```
-
-获取方式：
-- 智谱 AI：https://open.bigmodel.cn/ 注册后在 API Keys 页面获取
-- 百度语音：https://ai.baidu.com/ 创建应用后获取
-
-### 3. 启动运行
-
-**Web 模式（本地开发）：**
-
-```bash
-cd web
-python main.py
-```
-
-浏览器打开 http://127.0.0.1:5000 即可使用。
-
-**桌面 GUI 模式：**
-
-```bash
-python pyqt_local_agent.py
-```
-
-桌面端连接 Railway 服务器（`https://memory-n.ccwu.cc`），也可本地启动 Web 服务后连接 `http://localhost:5000`。
-
-## 使用方式
-
-### 保存记忆
-
-直接用自然语言告诉暖暖要记住的内容：
-
-- "帮我记住 WiFi 密码是 12345678"
-- "记一下：张三的电话是 13800138000"
-- "提醒我明天下午3点开会"
-
-### 搜索记忆
-
-- "帮我找一下 WiFi 密码"
-- "查一下张三的联系方式"
-- "之前记过的那个会议是什么时候"
-
-### 闲聊对话
-
-- "你好"
-- "今天天气怎么样"
-- "给我讲个故事"
-
-### 图片理解
-
-拖拽、粘贴或点击📎上传图片，暖暖会自动识别图片内容并生成可搜索的描述和标签。
-
-## v6.0 新特性
-
-- **全新 UI 设计** - 参考主流聊天应用，消息气泡带头像和时间戳
-- **无边框窗口** - 桌面端自定义标题栏，支持拖拽移动
-- **暗色模式** - 亮色/暗色主题一键切换，设置持久化
-- **统计面板** - 查看记忆总数、热门标签、存储信息
-- **图片放大** - 搜索结果中的图片可点击查看大图
-- **复制记忆** - 每条搜索结果支持一键复制
-- **在线更新检查** - 启动时自动检查新版本通知
-- **附件上传** - 点击📎按钮选择文件上传
-- **待保存指示** - 输入区下方显示等待补充内容提示
-
-### 已移除功能
-
-- 离线模式（桌面端必须连接服务器）
-- 命令行模式（`--cli` / `--once`）
-- 唤醒词检测（"你好暖暖"）
-- 本地语音处理（ASR/TTS 改为服务端处理）
-- 记忆库文件夹操作
-- 聊天记录导出
-
-## 打包为 EXE
-
-```bash
-python build_exe.py
-```
-
-生成的 `dist/记忆助手.exe` 为单文件可执行程序，需与 `data/` 目录一起分发。
-
-## 部署到 Railway
-
-1. 将代码推送到 Git 仓库
-2. 在 Railway 中连接仓库
-3. 在 Variables 页面添加环境变量：
-   - `ZHIPU_API_KEY` - 智谱 AI API Key
-   - `BAIDU_APP_ID` / `BAIDU_API_KEY` / `BAIDU_SECRET_KEY` - 百度语音（可选）
-4. Railway 自动检测 `Procfile` 并部署
-
-### 可选环境变量
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `LOCAL_AGENT_MODEL` | 对话模型 | `GLM-4-Flash-250414` |
-| `LOCAL_AGENT_VISION_MODEL` | 图片理解模型 | `glm-4v-flash` |
-| `PORT` | 服务端口 | `5000` |
-| `DATA_DIR` | 数据目录 | `./data` |
-
-## API 接口
-
-Web 模式提供以下 REST API：
-
-### 对话与记忆
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/chat` | 发送聊天消息（自动判断意图） |
-| POST | `/api/chat/confirm_save` | 确认保存记忆 |
-| POST | `/api/save` | 直接保存记忆 |
-| POST | `/api/search` | 搜索记忆 |
-| POST | `/api/upload` | 上传文件/图片 |
-
-### 记忆管理
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/memories` | 获取记忆列表 |
-| GET | `/api/memories/recent` | 获取最近记忆 |
-| POST | `/api/memories/search` | 高级搜索（标签、日期范围） |
-| GET | `/api/memory/<id>` | 获取记忆详情 |
-| PUT | `/api/memory/<id>` | 更新记忆 |
-| DELETE | `/api/memory/<id>` | 删除记忆 |
-| GET | `/api/tags` | 获取所有标签 |
-| GET | `/api/stats` | 获取统计信息 |
-
-### 语音
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/speech_recognize` | 语音识别（ASR） |
-| POST | `/api/speech_synthesize` | 语音合成（TTS） |
-| POST | `/api/voice_dialogue` | 语音对话（识别 + 回复 + 合成） |
-
-### 其他
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/health` | 健康检查 |
-| GET | `/api/vault/path` | 获取保险库路径 |
-| POST | `/api/clear` | 清空对话历史 |
-| GET | `/api/file/image` | 图片预览 |
 
 ## 架构设计
 
@@ -270,13 +89,96 @@ Web 模式提供以下 REST API：
 (API客户端)  (浏览器)
 ```
 
-### 关键设计
+**关键设计决策：**
 
-- **纯在线架构**：桌面端通过 `MemoryApiClient` 调用 Flask 后端 API，断线时自动重连
-- **共享业务逻辑** (`app/`)：桌面端和 Web 端共用同一套核心代码，避免逻辑重复
-- **FTS5 + LIKE 双重搜索**：优先使用 FTS5 全文索引，索引不可用时回退到 LIKE 模糊匹配
-- **记忆保险库** (`memory_vault/`)：所有记忆以 Markdown 文件归档，便于备份和迁移
-- **服务端语音处理**：ASR/TTS 通过百度 AIP 在服务端完成，桌面端无需安装音频库
+- **纯在线架构** — 桌面端通过 `MemoryApiClient` 调用 Flask 后端 API，支持自动重连和指数退避
+- **共享业务逻辑** — `app/` 目录下的代码被桌面端和 Web 端共用，避免逻辑重复
+- **FTS5 + LIKE 双重搜索** — 优先使用 FTS5 全文索引，索引不可用时回退到 LIKE 模糊匹配
+- **服务端语音处理** — ASR/TTS 通过百度 AIP 在服务端完成，桌面端无需安装音频库
+- **连接池与缓存** — 服务端使用 LRU 缓存（tags 300s、stats 60s、recent 30s），减少重复查询
+
+## 快速开始
+
+### 环境要求
+
+- Python 3.11+
+- Windows / macOS / Linux
+
+### 安装依赖
+
+```bash
+pip install -r requirements.txt
+
+# 桌面端额外依赖
+pip install PyQt5
+```
+
+### 配置 API 密钥
+
+复制 `.env.example` 为 `.env` 并填入实际值：
+
+```bash
+cp .env.example .env
+```
+
+获取方式：
+- 智谱 AI：https://open.bigmodel.cn/ — 注册后在 API Keys 页面获取
+- 百度语音：https://ai.baidu.com/ — 创建应用后获取
+
+### 启动运行
+
+**Web 模式（本地）：**
+
+```bash
+cd web
+python main.py
+```
+
+浏览器打开 http://127.0.0.1:5000 ，管理后台在 http://127.0.0.1:5000/admin
+
+**桌面 GUI 模式：**
+
+```bash
+python pyqt_local_agent.py
+```
+
+桌面端启动时会自动检测可用服务器：优先连接本地 `http://127.0.0.1:5000`，不可用则连接远程。也可点击标题栏右侧的设置按钮手动切换。
+
+**本地完整运行（Web + 桌面 + 管理）：**
+
+```bash
+# 1. 启动 Web 服务
+cd web && python main.py &
+
+# 2. 启动桌面端（自动连接本地服务）
+cd .. && python pyqt_local_agent.py
+```
+
+在 `.env` 中设置 `SERVER_URL=http://127.0.0.1:5000` 可让 API 客户端默认使用本地服务。
+
+## 部署到 Railway
+
+1. 将代码推送到 Git 仓库
+2. 在 Railway 中连接仓库，自动检测 `Procfile` 并部署
+3. 在 Variables 页面添加环境变量：
+
+| 变量 | 必填 | 说明 | 默认值 |
+|------|------|------|--------|
+| `ZHIPU_API_KEY` | 是 | 智谱 AI API Key | — |
+| `ADMIN_KEY` | 否 | 管理员密码 | — |
+| `BAIDU_APP_ID` | 否 | 百度语音 APP ID | — |
+| `BAIDU_API_KEY` | 否 | 百度语音 API Key | — |
+| `BAIDU_SECRET_KEY` | 否 | 百度语音 Secret Key | — |
+| `LOCAL_AGENT_MODEL` | 否 | 对话模型 | `glm-4-flash-250414` |
+| `LOCAL_AGENT_VISION_MODEL` | 否 | 图片理解模型 | `glm-4v-flash` |
+| `PORT` | 否 | 服务端口 | `5000` |
+| `DATA_DIR` | 否 | 数据目录 | `./data` |
+
+部署完成后访问 `https://your-app.up.railway.app` 即可使用。
+
+## API 接口
+
+详见 [使用文档](docs/USAGE.md#api-接口) 。
 
 ## 许可证
 

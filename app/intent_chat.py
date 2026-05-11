@@ -11,7 +11,6 @@ from typing import Any
 from . import repo as app_repo
 from . import search as app_search
 from .answer import answer as app_answer
-from .intent import call_planning_model
 
 
 # ============ 意图判断 ============
@@ -159,41 +158,8 @@ def extract_search_query(text: str) -> str:
 
 # ============ 记忆元数据构建 ============
 
-def build_memory_metadata(text: str) -> tuple[str, str]:
-    """从用户输入中提取标题和摘要（会调用 LLM）"""
-    title = ""
-    summary = ""
-    try:
-        plan = call_planning_model(text)
-        title = (getattr(plan, "note_title", "") or "").strip()
-        summary = (getattr(plan, "note_content", "") or "").strip()
-    except Exception:
-        pass
-
-    if not title:
-        if "我的" in text and ("是" in text or ":" in text or "：" in text):
-            parts = text.replace("：", ":").split(":")
-            if len(parts) >= 2:
-                title = parts[0].strip()[:20]
-            else:
-                parts = text.split("是")
-                if len(parts) >= 2:
-                    title = ("我的" + parts[1].strip())[:20] if "我的" in parts[0] else parts[0].strip()[:20]
-
-        if not title:
-            keywords = ["密码", "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "身份证", "车牌"]
-            for kw in keywords:
-                if kw in text:
-                    title = f"我的{kw}"
-                    break
-
-    fallback_title = title or ((text[:18] + "…") if len(text) > 18 else (text or "记忆"))
-    fallback_summary = summary or ((text[:80] + "…") if len(text) > 80 else (text or "记忆"))
-    return (fallback_title, fallback_summary)
-
-
 def build_memory_metadata_fast(text: str) -> tuple[str, str]:
-    """从用户输入中提取标题和摘要（仅本地逻辑，不调用 LLM，用于快速保存路径）"""
+    """从用户输入中提取标题和摘要（仅本地逻辑，不调用 LLM）"""
     title = ""
     if "我的" in text and ("是" in text or ":" in text or "：" in text):
         parts = text.replace("：", ":").split(":")
