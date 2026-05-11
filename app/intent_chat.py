@@ -17,7 +17,7 @@ from .answer import answer as app_answer
 
 def determine_intent(text: str) -> str:
     """判断用户意图：save / search / chat
-    检测顺序：明确命令 -> 问候/问句 -> 关键词匹配 -> 默认 chat
+    检测顺序：明确命令 -> 保存关键词 -> 搜索关键词 -> 搜索问题模式 -> 问候 -> 默认 chat
     """
     stripped = text.strip()
     if not stripped:
@@ -29,28 +29,58 @@ def determine_intent(text: str) -> str:
     if stripped.startswith(("/搜", "/search")):
         return "search"
 
-    # ===== 保存意图（优先于问候/问句检测） =====
+    # ===== 保存意图（优先级最高） =====
     save_keywords = (
-        "帮我记", "记一下", "记住", "记录一下", "保存一下",
-        "帮我存", "存一下", "提醒我", "别忘了", "备忘",
-        "把这个记下来", "收藏", "记下来", "要记住", "写下来",
+        "帮我记", "帮我存", "帮我保存", "帮我备注", "帮我写上",
+        "记一下", "存一下", "记录一下", "保存一下", "备注一下",
+        "标记一下", "标注一下",
+        "记住", "记下来", "记下来吧", "存下来", "写下来",
+        "收藏", "备忘", "留个底", "存着", "mark一下",
+        "记着", "记上", "存档", "存个档",
+        "提醒我", "别忘了", "要记住",
+        "把这个记下来", "添加到记忆", "加入记忆",
     )
     if any(k in stripped for k in save_keywords):
         return "save"
 
     # ===== 搜索意图 =====
     search_keywords = (
-        "帮我找", "帮我查", "查一下", "搜一下", "找一下",
-        "查找", "找到", "搜索", "记得", "我记过",
-        "之前记", "以前记", "我存过", "我的记忆", "记忆库",
-        "保存过", "记录过", "查询", "检索",
+        "帮我找", "帮我查", "帮我搜",
+        "查一下", "搜一下", "找一下", "查查", "找找", "搜搜",
+        "查找", "找到", "搜索", "检索", "查询",
+        "找找看", "搜搜看", "找出来", "调出来", "翻一下",
+        "记得", "我记过", "有没有记过",
+        "之前记", "以前记", "我之前记", "上次记",
+        "之前存", "以前存", "我之前存",
+        "我存过", "保存过", "记录过",
+        "我的记忆", "记忆库", "记忆里",
+        "告诉我", "我想知道", "看看我记了什么",
     )
     if any(k in stripped for k in search_keywords):
         return "search"
 
+    # 搜索问题模式（"我的X是什么/多少/在哪"）
+    _search_data_kw = (
+        "密码", "手机号", "电话", "电话号码", "地址", "生日",
+        "邮箱", "卡号", "账号", "身份证", "车牌", "银行卡",
+    )
+    _question_patterns = ("是什么", "是多少", "在哪", "在哪里")
+    if "我的" in stripped and any(kw in stripped for kw in _search_data_kw):
+        if any(p in stripped for p in _question_patterns):
+            return "search"
+
     memory_question_keywords = (
         "我记了什么", "记得什么", "存了什么", "保存了什么",
-        "记忆里有", "记忆库有", "密码", "号码", "电话", "生日",
+        "记忆里有", "记忆库有",
+        "密码是什么", "密码是多少", "密码忘了", "密码多少",
+        "手机号是什么", "手机号是多少", "手机号多少",
+        "电话号码", "电话是多少", "号码是多少",
+        "地址是什么", "地址是多少", "地址在哪",
+        "生日是什么", "生日是哪天", "生日是多少",
+        "身份证号", "身份证号码",
+        "我的密码", "我的手机号", "我的电话", "我的地址",
+        "我的生日", "我的邮箱", "我的卡号", "我的账号",
+        "我的身份证", "我的车牌", "我的银行卡",
         "之前记的", "以前记的", "我记录过",
     )
     if any(k in stripped for k in memory_question_keywords):
@@ -81,42 +111,78 @@ CANCEL_WORDS = frozenset({
 })
 
 
+def _has_actual_value(text: str) -> bool:
+    """检测文本是否包含具体值（数字、邮箱、URL、日期等）"""
+    import re
+    if any(c.isdigit() for c in text):
+        return True
+    if "@" in text and "." in text:
+        return True
+    if len(text) > 10:
+        return True
+    if re.search(r'https?://', text):
+        return True
+    if re.search(r'\d{1,2}[月:\-/]\d{1,2}', text):
+        return True
+    return False
+
+
 def check_save_pending(text: str) -> tuple[bool, str | None]:
     """检查用户是否只表达了保存意图但没有具体内容。
     返回 (need_wait, pending_text)
     """
     text_stripped = text.strip()
 
-    # 有数字 -> 有具体内容
-    if any(c.isdigit() for c in text_stripped):
-        return (False, None)
-
-    # 有足够长的实质内容（非纯意图短语）-> 不需要等待
-    if len(text_stripped) > 10:
-        return (False, None)
-
-    # 纯意图短语（后面没有内容或只有占位词）
     save_verbs = [
-        "帮我记住", "帮我记", "帮我存", "帮我保存",
-        "记一下", "存一下", "记录一下", "保存一下",
-        "记下来", "存下来", "写下来", "写一下",
-        "备忘", "别忘了", "提醒我",
+        "帮我记住", "帮我记", "帮我存", "帮我保存", "帮我备注", "帮我写上",
+        "记一下", "存一下", "记录一下", "保存一下", "备注一下",
+        "标记一下", "标注一下",
+        "记下来", "存下来", "写下来", "记下来吧",
+        "备忘", "别忘了", "提醒我", "留个底",
     ]
+
     for verb in save_verbs:
         if text_stripped.startswith(verb):
             after = text_stripped[len(verb):].strip()
+            # verb 后没有内容
             if not after:
                 return (True, text_stripped)
-            placeholder_keywords = [
-                "我的手机号", "我的电话", "我的地址", "我的生日",
-                "我的邮箱", "我的卡号", "我的账号", "我的密码",
-                "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "密码",
+
+            # 数据关键词（涵盖日常生活中需要记忆的各类信息）
+            data_keywords = [
+                "密码", "手机号", "电话号码", "手机号码", "电话", "地址",
+                "生日", "邮箱", "卡号", "账号", "身份证", "车牌", "银行卡",
+                "社保", "护照", "驾照", "工号", "学号",
+                "QQ号", "微信号", "游戏账号", "IP地址", "WiFi密码", "wifi密码",
+                "网站", "网址", "服务器", "银行卡号", "信用卡", "会员卡",
+                "门牌号", "楼层", "会议室", "收货地址", "公司地址", "家庭地址",
+                "邮编", "紧急联系人", "过敏信息", "血型", "病历号", "医保号",
+                "签证", "股票", "基金", "行李箱密码", "保险箱密码", "密码锁",
             ]
-            after_clean = after.replace("我的", "").strip()
-            if any(after_clean == kw or after == kw for kw in placeholder_keywords):
+
+            has_data_keyword = any(kw in after for kw in data_keywords)
+
+            # 有数据关键词但没有实际值 → 追问
+            if has_data_keyword and not _has_actual_value(after):
                 return (True, text_stripped)
-            if len(after) <= 3:
+
+            # 纯数据类型模式检测（去掉所有格和修饰词后只剩数据类型词）
+            text_no_verb = after
+            for p in ("我的", "你的", "他的", "她的", "它的", "咱们的", "我家的"):
+                text_no_verb = text_no_verb.replace(p, "")
+            for m in ("手机", "电脑", "银行", "邮箱", "网站", "游戏",
+                       "qq", "QQ", "微信", "微博", "支付宝", "淘宝",
+                       "家里", "公司", "学校", "医院"):
+                text_no_verb = text_no_verb.replace(m, "")
+            text_no_verb = text_no_verb.strip()
+            pure_type_words = [
+                "密码", "手机号", "电话", "电话号码", "地址", "生日",
+                "邮箱", "卡号", "账号", "身份证", "车牌", "银行卡",
+                "QQ号", "微信号", "WiFi密码",
+            ]
+            if text_no_verb in pure_type_words:
                 return (True, text_stripped)
+
             return (False, None)
 
     # 短文本纯保存词
@@ -171,7 +237,12 @@ def build_memory_metadata_fast(text: str) -> tuple[str, str]:
                 title = ("我的" + parts[1].strip())[:20] if "我的" in parts[0] else parts[0].strip()[:20]
 
     if not title:
-        keywords = ["密码", "手机号", "电话", "地址", "生日", "邮箱", "卡号", "账号", "身份证", "车牌"]
+        keywords = [
+            "密码", "手机号", "电话号码", "手机号码", "电话", "地址", "生日", "邮箱",
+            "卡号", "账号", "身份证", "车牌", "银行卡", "银行卡号",
+            "信用卡", "会员卡", "QQ号", "微信号", "游戏账号", "WiFi密码",
+            "收货地址", "公司地址", "紧急联系人", "保险箱密码", "密码锁",
+        ]
         for kw in keywords:
             if kw in text:
                 title = f"我的{kw}"
@@ -189,7 +260,10 @@ def search_memory(conn, user_text: str, limit: int = 5) -> list:
     query = extract_search_query(user_text)
 
     search_queries = [query]
-    important_keywords = ["手机号", "电话", "密码", "地址", "生日", "邮箱", "卡号", "账号"]
+    important_keywords = [
+        "手机号", "电话号码", "手机号码", "电话", "密码", "地址", "生日", "邮箱",
+        "卡号", "账号", "身份证", "银行卡", "QQ号", "微信号", "WiFi密码",
+    ]
     for kw in important_keywords:
         if kw in query and kw not in search_queries:
             search_queries.append(kw)

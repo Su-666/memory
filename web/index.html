@@ -322,7 +322,7 @@
         .bubble-row {
             display: flex;
             gap: 12px;
-            align-items: flex-end;
+            align-items: flex-start;
             animation: bubbleIn 0.3s var(--transition);
         }
 
@@ -354,12 +354,27 @@
         }
 
         .bubble {
-            max-width: 82%;
-            padding: 14px 20px;
-            border-radius: var(--border-radius);
-            line-height: 1.55;
+            max-width: 100%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            line-height: 1.6;
             word-wrap: break-word;
+            overflow-wrap: break-word;
+            word-break: break-word;
             font-size: 15px;
+            white-space: pre-wrap;
+        }
+
+        .bubble-row .col {
+            min-width: 0;
+            max-width: 75%;
+            flex: 0 1 auto;
+        }
+
+        .bubble-row.user .col {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
         }
 
         @keyframes bubbleIn {
@@ -389,13 +404,21 @@
             backdrop-filter: blur(10px);
         }
 
-        .bubble-assistant .bubble-name {
-            display: block;
+        .bubble-name {
             font-size: 11px;
             font-weight: 700;
             color: var(--text-muted);
-            margin-bottom: 8px;
+            margin-bottom: 4px;
             letter-spacing: 0.03em;
+        }
+
+        .time-separator {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+            opacity: 0.5;
+            padding: 8px 0;
+            user-select: none;
         }
 
         .bubble-results {
@@ -1014,8 +1037,11 @@
                 padding: 5px 8px;
                 font-size: 10px;
             }
+            .bubble-row .col {
+                max-width: 85%;
+                flex: 0 1 auto;
+            }
             .bubble {
-                max-width: 92%;
                 padding: 8px 12px;
                 font-size: 14px;
             }
@@ -1122,8 +1148,11 @@
                 padding-bottom: 80px;
                 scroll-padding-bottom: 16px;
             }
+            .bubble-row .col {
+                max-width: 80%;
+                flex: 0 1 auto;
+            }
             .bubble {
-                max-width: 90%;
                 padding: 10px 14px;
                 font-size: 15px;
                 line-height: 1.55;
@@ -1137,7 +1166,7 @@
                 min-width: 30px;
                 font-size: 12px;
             }
-            .bubble-assistant .bubble-name {
+            .bubble-name {
                 font-size: 11px;
             }
             .input-area {
@@ -1283,8 +1312,11 @@
                 padding: 16px 14px;
                 padding-bottom: 20px;
             }
+            .bubble-row .col {
+                max-width: 75%;
+                flex: 0 1 auto;
+            }
             .bubble {
-                max-width: 80%;
                 font-size: 15px;
             }
             .input-area {
@@ -1352,8 +1384,9 @@
                 padding: 24px;
                 padding-bottom: 24px;
             }
-            .bubble {
+            .bubble-row .col {
                 max-width: 70%;
+                flex: 0 1 auto;
             }
             .input-area {
                 padding: 14px 18px;
@@ -1388,8 +1421,11 @@
             .main {
                 max-width: 960px;
             }
-            .bubble {
+            .bubble-row .col {
                 max-width: 65%;
+                flex: 0 1 auto;
+            }
+            .bubble {
                 font-size: 15px;
             }
             .chat-view {
@@ -1777,7 +1813,7 @@
                         body: JSON.stringify({ text: text, pending_text: pendingSaveText })
                     });
                     const data = await response.json();
-                    if (data.text) addBubble('assistant', data.text);
+                    if (data.text) addBubbleTypewriter('assistant', data.text);
                     pendingSaveText = null;
                     showPendingIndicator(false);
                 } catch (e) {
@@ -1818,7 +1854,7 @@
                         showPendingIndicator(true);
                     }
 
-                    addBubble('assistant', data.text);
+                    addBubbleTypewriter('assistant', data.text);
 
                     if (data.results && data.results.length > 0) {
                         showResults(data.results);
@@ -1882,12 +1918,25 @@
             });
         }
 
+        let lastMsgTime = 0;
+
+        function maybeAddTimeSeparator() {
+            const now = Date.now();
+            if (now - lastMsgTime < 300000 && lastMsgTime > 0) return;
+            lastMsgTime = now;
+            const d = new Date();
+            const hh = d.getHours().toString().padStart(2, '0');
+            const mm = d.getMinutes().toString().padStart(2, '0');
+            const sep = document.createElement('div');
+            sep.className = 'time-separator';
+            sep.textContent = hh + ':' + mm;
+            $chatView.appendChild(sep);
+        }
+
         function addBubble(type, text) {
             const welcome = $chatView.querySelector('.welcome');
             if (welcome) welcome.remove();
-
-            const now = new Date();
-            const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+            maybeAddTimeSeparator();
 
             const row = document.createElement('div');
             row.className = 'bubble-row ' + type;
@@ -1896,19 +1945,69 @@
             avatar.className = 'avatar ' + type;
             avatar.textContent = type === 'assistant' ? '暖' : '我';
 
-            const bubble = document.createElement('div');
-            bubble.className = 'bubble bubble-' + type;
+            const col = document.createElement('div');
+            col.className = 'col';
 
             if (type === 'assistant') {
-                bubble.innerHTML = '<span class="bubble-name">暖暖 · ' + timeStr + '</span>' + escapeHtml(text).replace(/\n/g, '<br>');
-            } else {
-                bubble.innerHTML = escapeHtml(text).replace(/\n/g, '<br>') + '<div style="font-size:11px;opacity:0.6;text-align:right;margin-top:4px;">' + timeStr + '</div>';
+                const name = document.createElement('div');
+                name.className = 'bubble-name';
+                name.textContent = '暖暖';
+                col.appendChild(name);
             }
 
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble bubble-' + type;
+            bubble.innerHTML = escapeHtml(text).replace(/\n/g, '<br>');
+            col.appendChild(bubble);
+
             row.appendChild(avatar);
-            row.appendChild(bubble);
+            row.appendChild(col);
             $chatView.appendChild(row);
             requestAnimationFrame(scrollToBottom);
+        }
+
+        function addBubbleTypewriter(type, text) {
+            const welcome = $chatView.querySelector('.welcome');
+            if (welcome) welcome.remove();
+            maybeAddTimeSeparator();
+            lastMsgTime = Date.now();
+
+            const row = document.createElement('div');
+            row.className = 'bubble-row ' + type;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar ' + type;
+            avatar.textContent = type === 'assistant' ? '暖' : '我';
+
+            const col = document.createElement('div');
+            col.className = 'col';
+
+            if (type === 'assistant') {
+                const name = document.createElement('div');
+                name.className = 'bubble-name';
+                name.textContent = '暖暖';
+                col.appendChild(name);
+            }
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble bubble-' + type;
+            col.appendChild(bubble);
+
+            row.appendChild(avatar);
+            row.appendChild(col);
+            $chatView.appendChild(row);
+
+            let idx = 0;
+            const step = text.length > 100 ? 3 : (text.length > 30 ? 2 : 1);
+            const timer = setInterval(() => {
+                if (idx >= text.length) {
+                    clearInterval(timer);
+                    return;
+                }
+                idx = Math.min(idx + step, text.length);
+                bubble.innerHTML = escapeHtml(text.substring(0, idx)).replace(/\n/g, '<br>');
+                scrollToBottom();
+            }, 30);
         }
 
         function showResults(results) {
@@ -2476,7 +2575,7 @@
 
                 // 显示助手回复
                 if (data.text) {
-                    addBubble('assistant', data.text);
+                    addBubbleTypewriter('assistant', data.text);
                 }
 
                 // 搜索结果
@@ -2807,6 +2906,7 @@
                 pendingSaveText = null;
                 showPendingIndicator(false);
                 chatHistory = [];
+                lastMsgTime = 0;
                 fetch('/api/clear', { method: 'POST' });
                 showToast('对话已清空', 'success');
             }

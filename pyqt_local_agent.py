@@ -763,6 +763,13 @@ class AgentWindow(QMainWindow):
         self._dark_mode: bool = False
         self._is_sending: bool = False  # 防止重复发送
         self._typing_widget: QWidget | None = None  # 打字指示器
+        self._tw_timer: QTimer | None = None  # 逐字输出定时器
+        self._tw_body: QTextBrowser | None = None
+        self._tw_plain: str = ""
+        self._tw_idx: int = 0
+        self._tw_speed: int = 30  # 每字间隔(ms)
+        self._tw_text_color: str = ""
+        self._last_msg_time: float = 0  # 上条消息的时间戳
         self._MAX_CHAT_MESSAGES = 120  # 最多保留消息数
 
         # 气泡参数
@@ -774,7 +781,7 @@ class AgentWindow(QMainWindow):
         self._bubble_user_body_font_px = 18
         self._bubble_user_pad_x = 8
         self._bubble_user_pad_y = 8
-        self._bubble_min_width_px = 40
+        self._bubble_min_width_px = 56
         self._preview_base_w = 320
         self._preview_base_h = 200
 
@@ -1113,9 +1120,11 @@ class AgentWindow(QMainWindow):
         bar.setValue(bar.maximum())
 
     def eventFilter(self, obj, event) -> bool:
-        # 先检查事件类型，绝大多数事件都不是 KeyPress，直接跳过
-        if event.type() == 6:  # KeyPress
-            # 只拦截主聊天视图的按键，不拦截子 QTextBrowser 的导航
+        etype = event.type()
+        # 拦截气泡内 QTextBrowser 的滚轮事件，让外层滚动条接管
+        if etype == 31:  # Wheel
+            return True
+        if etype == 6:  # KeyPress
             if obj is self.chat_view.viewport():
                 key = event.key()
                 if key in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown, Qt.Key_Left, Qt.Key_Right):
@@ -1146,17 +1155,17 @@ class AgentWindow(QMainWindow):
             pass
 
     def _fit_text_browser(self, tb: QTextBrowser) -> None:
+        self._fit_text_browser_w(tb, tb.viewport().width() or tb.width())
+
+    def _fit_text_browser_w(self, tb: QTextBrowser, width: int) -> None:
         try:
             doc = tb.document()
             self._tighten_bubble_document_layout(doc)
-            viewport_w = tb.viewport().width()
-            if viewport_w <= 0:
-                viewport_w = tb.width()
-            doc.setTextWidth(max(0, viewport_w))
+            doc.setTextWidth(max(0, width))
             h_doc = int(doc.size().height())
             fm = QFontMetrics(tb.font())
             plain = (tb.toPlainText() or "").rstrip("\n")
-            if "\n" not in plain and viewport_w > 0 and fm.horizontalAdvance(plain) <= viewport_w + 2:
+            if "\n" not in plain and width > 0 and fm.horizontalAdvance(plain) <= width + 2:
                 h = fm.height()
             else:
                 h = max(fm.height(), h_doc)
@@ -1172,7 +1181,7 @@ class AgentWindow(QMainWindow):
         self._refit_debounce_timer.start(200)  # 200ms 防抖，避免频繁触发
 
     def _refit_chat_bubbles(self) -> None:
-        """只重新计算最近几个气泡的宽度，不遍历全部控件"""
+        """重新计算最近几个气泡的宽高"""
         try:
             if not hasattr(self, "_chat_inner"):
                 return
@@ -1180,40 +1189,55 @@ class AgentWindow(QMainWindow):
             avail = int(rp["avail"])
             pad_m = self._bubble_pad_x
 
-            # 只处理最后 8 个气泡（新消息通常在底部）
             recent_bubbles = self._chat_bubbles[-8:] if len(self._chat_bubbles) > 8 else self._chat_bubbles
             for outer in recent_bubbles:
                 frame = outer.property("_bubble_frame")
                 body = outer.property("_bubble_body")
-                if not frame:
+                name_lbl = outer.property("_bubble_name")
+                if not frame or not body:
                     continue
                 plain = str(frame.property("plainText") or "")
-                title = str(frame.property("bubbleTitle") or "")
-                if body is not None and body.font():
-                    fm_body = QFontMetrics(body.font())
-                    lines = (plain or "").splitlines() or [""]
-                    longest = max((ln.strip() for ln in lines), key=len, default="")
-                    text_w = fm_body.horizontalAdvance(longest)
-                    title_w = 0
-                    if title:
-                        fm_title = QFontMetrics(QFont(body.font().family(), self._bubble_title_font_px))
-                        title_w = fm_title.horizontalAdvance(title)
-                    content_w = max(text_w, title_w)
-                    char_count = len((plain or "").strip())
-                    dyn_pad = max(6, pad_m // 2) if char_count <= 2 else (max(8, pad_m - 4) if char_count <= 6 else pad_m)
-                    new_frame_w = min(content_w + dyn_pad * 2 + 4, avail)
-                    new_frame_w = max(new_frame_w, self._bubble_min_width_px)
-                    body_w = max(40, new_frame_w - dyn_pad * 2)
-                    body.setFixedWidth(body_w)
-                    frame.setFixedWidth(new_frame_w)
-                    self._fit_text_browser(body)
+                char_count = len((plain or "").strip())
+                dyn_pad = max(6, pad_m // 2) if char_count <= 2 else (max(8, pad_m - 4) if char_count <= 6 else pad_m)
+                pad_top = dyn_pad + 4
+                pad_bottom = dyn_pad
+                max_frame_w = max(self._bubble_min_width_px, int(avail * 0.80) - 46)
+                doc = body.document()
+                self._tighten_bubble_document_layout(doc)
+                doc.setTextWidth(9999)
+                content_w = int(doc.idealWidth())
+                new_frame_w = min(content_w + dyn_pad * 2 + 2, max_frame_w)
+                new_frame_w = max(new_frame_w, self._bubble_min_width_px)
+                body_w = max(40, new_frame_w - dyn_pad * 2 - 2)
+                doc.setTextWidth(body_w)
+                body_h = max(24, int(doc.size().height()))
+                body.setFixedSize(body_w, body_h)
+                frame_h = body_h + pad_top + pad_bottom
+                frame.setFixedSize(new_frame_w, frame_h)
+                col_h = frame_h
+                if name_lbl:
+                    col_h += name_lbl.sizeHint().height() + 4
+                outer_h = max(col_h + 6, 46)
+                outer.setFixedSize(new_frame_w + 46, outer_h)
         except Exception:
             return
 
     def _add_chat_widget(self, w: QWidget) -> None:
+        # 冻结绘制，防止中间状态闪烁
+        self._chat_inner.setUpdatesEnabled(False)
+
         idx = max(0, self._chat_layout.count() - 1)
         if w.property("bubbleAlign") == "right":
-            self._chat_layout.insertWidget(idx, w, 0, Qt.AlignRight)
+            # 用水平布局 + stretch 把气泡推到右侧，不依赖 AlignRight（会被 AlignTop 覆盖）
+            row = QWidget()
+            row.setProperty("bubbleAlign", "right")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(0)
+            row_layout.addStretch(1)
+            row_layout.addWidget(w, 0)
+            w.setProperty("_chat_wrapper", row)
+            self._chat_layout.insertWidget(idx, row)
         else:
             self._chat_layout.insertWidget(idx, w)
         self._chat_bubbles.append(w)
@@ -1221,12 +1245,15 @@ class AgentWindow(QMainWindow):
         # 超出上限时移除最早的消息（防止内存无限增长导致卡死）
         while len(self._chat_bubbles) > self._MAX_CHAT_MESSAGES:
             old = self._chat_bubbles.pop(0)
-            self._chat_layout.removeWidget(old)
-            old.setParent(None)
-            old.deleteLater()
+            wrapper = old.property("_chat_wrapper")
+            remove_target = wrapper if wrapper else old
+            self._chat_layout.removeWidget(remove_target)
+            remove_target.setParent(None)
+            remove_target.deleteLater()
 
-        self._schedule_refit_chat_bubbles()
-        QTimer.singleShot(10, self._scroll_chat_to_bottom)
+        # 恢复绘制并滚动到底部
+        self._chat_inner.setUpdatesEnabled(True)
+        QTimer.singleShot(0, self._scroll_chat_to_bottom)
 
     def _make_bubble(
         self, *, align_right: bool, title: str, html_body: str, plain_text: str,
@@ -1245,7 +1272,7 @@ class AgentWindow(QMainWindow):
         row.setContentsMargins(0, 3, 0, 3)
         row.setSpacing(6)
 
-        # 头像 - 自绘圆角
+        # 头像
         if not align_right:
             avatar = RoundLabel("暖", bg_color="#0d6b64", text_color="#fff",
                                 radius=20, font_size=16, font_weight=80)
@@ -1254,34 +1281,29 @@ class AgentWindow(QMainWindow):
                                 radius=20, font_size=16, font_weight=80)
         avatar.setFixedSize(40, 40)
 
+        # 名称标签（气泡外部上方）
+        name_lbl = None
+        if show_title and title:
+            name_lbl = QLabel(title)
+            name_lbl.setStyleSheet(f"color:{title_color}; font-size:{self._bubble_title_font_px}px; font-weight:700; padding:0px; margin:0px;")
+
+        # 气泡框
         frame = QFrame()
         frame.setObjectName("chatBubbleFrame")
-        if align_right:
-            frame.setStyleSheet(
-                f"QFrame#chatBubbleFrame{{background:{bg}; border:1px solid {border};"
-                f"border-radius:{self._bubble_radius + 4}px; padding:2px;}}"
-            )
-        else:
-            frame.setStyleSheet(
-                f"QFrame#chatBubbleFrame{{background:{bg}; border:1px solid {border};"
-                f"border-radius:{self._bubble_radius + 4}px;}}"
-            )
+        frame.setStyleSheet(
+            f"QFrame#chatBubbleFrame{{background:{bg}; border:1px solid {border};"
+            f"border-radius:{self._bubble_radius + 4}px;}}"
+        )
         frame.setProperty("plainText", plain_text or "")
-        frame.setProperty("bubbleTitle", (title or "") if show_title else "")
 
         frame_layout = QVBoxLayout(frame)
         frame_layout.setSpacing(4)
 
         char_count = len((plain_text or "").strip())
         dyn_pad = max(6, pad_m // 2) if char_count <= 2 else (max(8, pad_m - 4) if char_count <= 6 else pad_m)
-        frame_layout.setContentsMargins(dyn_pad, dyn_pad - 1, dyn_pad, dyn_pad - 1)
-
-        title_lbl = None
-        if show_title and title:
-            title_lbl = QLabel(title)
-            title_lbl.setWordWrap(True)
-            title_lbl.setStyleSheet(f"color:{title_color}; font-size:{self._bubble_title_font_px}px; font-weight:700;")
-            title_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        pad_top = dyn_pad + 4
+        pad_bottom = dyn_pad
+        frame_layout.setContentsMargins(dyn_pad, pad_top, dyn_pad, pad_bottom)
 
         body = QTextBrowser()
         body.setObjectName("chatBubbleBody")
@@ -1301,68 +1323,68 @@ class AgentWindow(QMainWindow):
         body.setTextInteractionFlags(Qt.NoTextInteraction)
         body.installEventFilter(self)
         body.viewport().installEventFilter(self)
-
-        fm_body = QFontMetrics(bf)
-        lines = (plain_text or "").splitlines() or [""]
-        longest = max((ln.strip() for ln in lines), key=len, default="")
-        text_natural_w = fm_body.horizontalAdvance(longest)
-        title_natural_w = 0
-        if show_title and title:
-            fm_title = QFontMetrics(QFont(bf.family(), self._bubble_title_font_px))
-            title_natural_w = fm_title.horizontalAdvance(title or "")
-        content_natural_w = max(text_natural_w, title_natural_w)
-        frame_width = min(content_natural_w + dyn_pad * 2 + 4, avail)
-        frame_width = max(frame_width, self._bubble_min_width_px)
-        body_w = max(40, frame_width - dyn_pad * 2)
-
-        body.setFixedWidth(body_w)
         body.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        body.setHtml(
-            f"<div style=\"font-family:'Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
-            f"font-size:{bfs}px; line-height:1.45; color:{text_color}; word-wrap:break-word; word-break:break-all;\">"
-            f"{html_body}</div>"
-        )
 
         opt = QTextOption(Qt.AlignLeft)
         opt.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
         body.document().setDefaultTextOption(opt)
-        frame.setFixedWidth(frame_width)
-        QTimer.singleShot(0, lambda tb=body: self._fit_text_browser(tb))
+        body.setHtml(
+            f"<div style=\"font-family:'Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
+            f"font-size:{bfs}px; line-height:1.45; color:{text_color}; word-wrap:break-word; word-break:break-word;\">"
+            f"{html_body}</div>"
+        )
 
-        if title_lbl is not None:
-            frame_layout.addWidget(title_lbl)
+        # 收紧文档边距
+        doc = body.document()
+        self._tighten_bubble_document_layout(doc)
+
+        # 宽度：最大 80%，自适应内容
+        doc.setTextWidth(9999)
+        content_w = int(doc.idealWidth())
+        max_frame_w = max(self._bubble_min_width_px, int(avail * 0.80) - 46)
+        frame_width = min(content_w + dyn_pad * 2 + 2, max_frame_w)
+        frame_width = max(frame_width, self._bubble_min_width_px)
+
+        # 高度
+        body_w = max(40, frame_width - dyn_pad * 2 - 2)
+        doc.setTextWidth(body_w)
+        body_h = max(24, int(doc.size().height()))
+
+        body.setFixedSize(body_w, body_h)
+        frame_h = body_h + pad_top + pad_bottom
+        frame.setFixedSize(frame_width, frame_h)
+        frame.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
         frame_layout.addWidget(body, 0, Qt.AlignLeft)
 
-        # 时间戳 - 更精致的设计
-        ts = QLabel(time.strftime("%H:%M"))
-        if align_right:
-            ts.setStyleSheet(f"color:rgba(240,255,253,0.45); font-size:10px; margin-top:3px; font-weight:500; letter-spacing:0.03em;")
-        else:
-            if self._dark_mode:
-                ts.setStyleSheet(f"color:rgba(122,184,168,0.35); font-size:10px; margin-top:3px; font-weight:500; letter-spacing:0.03em;")
-            else:
-                ts.setStyleSheet(f"color:rgba(90,138,126,0.3); font-size:10px; margin-top:3px; font-weight:500; letter-spacing:0.03em;")
+        # 列布局：名称 + 气泡
+        col = QVBoxLayout()
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(4)
+        if name_lbl:
+            col.addWidget(name_lbl, 0, Qt.AlignLeft)
+        col.addWidget(frame, 0, Qt.AlignLeft)
 
+        # 行布局：头像 + 列
         if align_right:
-            col = QVBoxLayout()
-            col.setSpacing(3)
-            col.addWidget(frame, 0, Qt.AlignRight)
-            col.addWidget(ts, 0, Qt.AlignRight)
             row.addStretch(1)
             row.addLayout(col)
             row.addWidget(avatar, 0, Qt.AlignTop)
         else:
             row.addWidget(avatar, 0, Qt.AlignTop)
-            col = QVBoxLayout()
-            col.setSpacing(3)
-            col.addWidget(frame, 0, Qt.AlignLeft)
-            col.addWidget(ts, 0, Qt.AlignLeft)
             row.addLayout(col)
             row.addStretch(1)
 
-        outer.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        # 计算外层高度
+        col_h = frame_h
+        if name_lbl:
+            col_h += name_lbl.sizeHint().height() + 4
+        outer_h = max(col_h + 6, 46)
+        outer.setFixedSize(frame_width + 46, outer_h)
+        outer.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         outer.setProperty("_bubble_frame", frame)
         outer.setProperty("_bubble_body", body)
+        outer.setProperty("_bubble_name", name_lbl)
         return outer
 
     def _make_related_item(self, item: dict[str, Any]) -> QWidget:
@@ -1513,9 +1535,32 @@ class AgentWindow(QMainWindow):
                 "asst_text_color": "#1a3330",
             }
 
+    def _maybe_add_time_separator(self) -> None:
+        now = time.time()
+        if now - self._last_msg_time < 300 and self._last_msg_time > 0:
+            return
+        self._last_msg_time = now
+        t = time.localtime(now)
+        if time.localtime().tm_mday == t.tm_mday and time.localtime().tm_mon == t.tm_mon:
+            label = time.strftime("%H:%M", t)
+        else:
+            label = time.strftime("%m月%d日 %H:%M", t)
+        sep = QLabel(label)
+        sep.setAlignment(Qt.AlignCenter)
+        if self._dark_mode:
+            sep.setStyleSheet("color:rgba(122,184,168,0.4); font-size:11px; padding:6px 0; font-weight:500;")
+        else:
+            sep.setStyleSheet("color:rgba(90,138,126,0.35); font-size:11px; padding:6px 0; font-weight:500;")
+        sep.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        sep.setFixedHeight(24)
+        idx = max(0, self._chat_layout.count() - 1)
+        self._chat_layout.insertWidget(idx, sep)
+        self._chat_bubbles.append(sep)
+
     def _append_user(self, text: str) -> None:
         safe = html.escape(text).replace("\n", "<br>")
         s = self._bubble_styles()
+        self._maybe_add_time_separator()
         w = self._make_bubble(
             align_right=True, title="", html_body=safe, plain_text=text,
             bg=s["user_bg"], border=s["user_border"],
@@ -1525,16 +1570,83 @@ class AgentWindow(QMainWindow):
         )
         self._add_chat_widget(w)
 
-    def _append_assistant(self, text: str) -> None:
+    def _append_assistant(self, text: str, typewriter: bool = False) -> None:
         safe = html.escape(text).replace("\n", "<br>")
         s = self._bubble_styles()
-        w = self._make_bubble(
-            align_right=False, title="暖暖", html_body=safe, plain_text=text,
-            bg=s["asst_bg"], border=s["asst_border"],
-            title_color=s["asst_title_color"], text_color=s["asst_text_color"],
-            show_title=True,
+        self._maybe_add_time_separator()
+        if typewriter and len(text) > 1:
+            # 先创建完整气泡（尺寸正确），再逐字显示内容
+            w = self._make_bubble(
+                align_right=False, title="暖暖", html_body=safe, plain_text=text,
+                bg=s["asst_bg"], border=s["asst_border"],
+                title_color=s["asst_title_color"], text_color=s["asst_text_color"],
+                show_title=True,
+            )
+            body = w.property("_bubble_body")
+            if body:
+                self._start_typewriter(body, text, s["asst_text_color"])
+            self._add_chat_widget(w)
+        else:
+            w = self._make_bubble(
+                align_right=False, title="暖暖", html_body=safe, plain_text=text,
+                bg=s["asst_bg"], border=s["asst_border"],
+                title_color=s["asst_title_color"], text_color=s["asst_text_color"],
+                show_title=True,
+            )
+            self._add_chat_widget(w)
+
+    def _start_typewriter(self, body: QTextBrowser, plain: str, text_color: str) -> None:
+        self._stop_typewriter()
+        self._tw_body = body
+        self._tw_plain = plain
+        self._tw_text_color = text_color
+        self._tw_idx = 0
+        # 先显示空内容，等待逐字填充
+        bfs = self._bubble_body_font_px
+        body.setHtml(
+            f"<div style=\"font-family:'Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
+            f"font-size:{bfs}px; line-height:1.45; color:{text_color}; word-wrap:break-word; word-break:break-word;\">"
+            f"</div>"
         )
-        self._add_chat_widget(w)
+        self._tw_timer = QTimer(self)
+        self._tw_timer.setInterval(self._tw_speed)
+        self._tw_timer.timeout.connect(self._typewriter_tick)
+        self._tw_timer.start()
+
+    def _typewriter_tick(self) -> None:
+        if self._tw_body is None or self._tw_idx >= len(self._tw_plain):
+            self._stop_typewriter()
+            return
+        step = 3 if len(self._tw_plain) > 100 else (2 if len(self._tw_plain) > 30 else 1)
+        self._tw_idx = min(self._tw_idx + step, len(self._tw_plain))
+        shown = self._tw_plain[:self._tw_idx]
+        shown_html = html.escape(shown).replace("\n", "<br>")
+        bfs = self._bubble_body_font_px
+        tc = self._tw_text_color
+        self._tw_body.setHtml(
+            f"<div style=\"font-family:'Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
+            f"font-size:{bfs}px; line-height:1.45; color:{tc}; word-wrap:break-word; word-break:break-word;\">"
+            f"{shown_html}</div>"
+        )
+        QTimer.singleShot(0, self._scroll_chat_to_bottom)
+
+    def _stop_typewriter(self) -> None:
+        if self._tw_timer:
+            self._tw_timer.stop()
+            self._tw_timer.deleteLater()
+            self._tw_timer = None
+        # 显示完整内容
+        if self._tw_body and self._tw_plain:
+            bfs = self._bubble_body_font_px
+            tc = self._tw_text_color
+            full_html = html.escape(self._tw_plain).replace("\n", "<br>")
+            self._tw_body.setHtml(
+                f"<div style=\"font-family:'Microsoft YaHei UI','Microsoft YaHei',sans-serif;"
+                f"font-size:{bfs}px; line-height:1.45; color:{tc}; word-wrap:break-word; word-break:break-word;\">"
+                f"{full_html}</div>"
+            )
+        self._tw_body = None
+        self._tw_plain = ""
 
     def _append_cards(self, items: list[dict[str, Any]]) -> None:
         if not items:
@@ -1730,6 +1842,7 @@ class AgentWindow(QMainWindow):
         # 防止重复发送
         if self._is_sending:
             return
+        self._stop_typewriter()
         self._append_user(text)
 
         if self._api is None:
@@ -1818,7 +1931,7 @@ class AgentWindow(QMainWindow):
         self._is_sending = False
         text = result.get("text", "")
         if text:
-            self._append_assistant(text)
+            self._append_assistant(text, typewriter=True)
         results = result.get("results")
         if results:
             self._append_cards(results)
@@ -1850,7 +1963,7 @@ class AgentWindow(QMainWindow):
 
     def _on_confirm_save_result(self, text: str) -> None:
         self._hide_typing_indicator()
-        self._append_assistant(text)
+        self._append_assistant(text, typewriter=True)
         self._set_status("准备就绪")
         if self.voice_worker and self.voice_worker.isRunning():
             self.voice_worker.speak_text(text)
@@ -2067,11 +2180,15 @@ class AgentWindow(QMainWindow):
     def _clear_query(self) -> None:
         self.command_input.clear()
         self._hide_typing_indicator()
+        self._stop_typewriter()
         self._is_sending = False
+        self._last_msg_time = 0
         for w in self._chat_bubbles:
-            self._chat_layout.removeWidget(w)
-            w.setParent(None)
-            w.deleteLater()
+            wrapper = w.property("_chat_wrapper")
+            remove_target = wrapper if wrapper else w
+            self._chat_layout.removeWidget(remove_target)
+            remove_target.setParent(None)
+            remove_target.deleteLater()
         self._chat_bubbles.clear()
         self._append_assistant("内容已清空。")
         self._set_status("内容已清空。")
