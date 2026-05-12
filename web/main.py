@@ -26,7 +26,7 @@ APP_VERSION = "6.0"
 CHANGELOG = "全新界面设计，在线模式，暗色主题支持"
 DOWNLOAD_URL = ""
 
-# Railway 使用环境变量 PORT
+# 端口配置
 PORT = int(os.environ.get("PORT", 5000))
 
 # 项目根目录（web/ 的父目录）
@@ -106,8 +106,8 @@ def init_vault_once():
             print(f"[STARTUP] 导入 {imported} 条新记忆", file=sys.stderr, flush=True)
     except Exception as e:
         print(f"[STARTUP] vault bootstrap import failed: {e}", file=sys.stderr, flush=True)
-    # 仅在本地环境清理失效文件记忆（Railway 上数据目录是持久化的，不需要清理）
-    if not os.environ.get("RAILWAY_STATIC_URL"):
+    # 清理失效文件记忆
+    if True:
         try:
             removed = app_repo.prune_missing_file_memories(conn)
             if removed:
@@ -577,7 +577,7 @@ def _get_baidu_client():
 def synthesize_with_qwen(text: str) -> bytes:
     client = _get_baidu_client()
     text = text.strip()[:300]
-    result = client.synthesis(text, 'zh', 1, {'per': 5, 'spd': 5, 'pit': 5, 'vol': 7, 'aue': 6})
+    result = client.synthesis(text, 'zh', 1, {'per': 5, 'spd': 7, 'pit': 5, 'vol': 7, 'aue': 6})
     if isinstance(result, dict):
         raise RuntimeError(f"百度语音合成失败: {result.get('err_msg', '未知错误')}")
     if not result or len(result) < 100:

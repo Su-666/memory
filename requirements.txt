@@ -1,4 +1,4 @@
-# Railway 部署依赖（仅 Web 端所需）
+# Web 端依赖
 flask>=2.3.0
 flask-cors>=4.0.0
 gunicorn>=21.2.0
@@ -7,5 +7,5 @@ baidu-aip>=2.2.18
 chardet>=5.0.0
 Pillow>=10.0.0
 
-# 桌面版额外依赖（本地开发用，Railway 不会安装）
-# pip install PyQt5
+# 桌面版额外依赖
+# pip install PySide6 PySide6-Fluent-Widgets

@@ -1,5 +1,5 @@
 """
-导入助手 - 解决 Railway 部署时的 Python 路径问题
+导入助手 - 解决 Web 部署时的 Python 路径问题
 统一使用根目录的 app/ 包，消除 web/app/ 代码重复
 """
 import sys

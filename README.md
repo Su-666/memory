@@ -18,7 +18,7 @@
 |------|------|
 | Web 后端 | Flask + Gunicorn + Flask-CORS |
 | Web 前端 | 原生 HTML/CSS/JS 单页应用 |
-| 桌面端 | PyQt5（无边框窗口、暗色模式、动画） |
+| 桌面端 | PySide6 + PyQt-Fluent-Widgets（Fluent 风格、暗色模式、动画） |
 | 数据库 | SQLite + FTS5 全文索引 |
 | 大模型 | 智谱 AI（GLM-4-Flash 对话，GLM-4V-Flash 图片理解） |
 | 语音 | 百度 AIP（服务端 ASR + TTS） |
@@ -30,7 +30,7 @@
 ├── pyqt_local_agent.py      # 桌面端主程序
 ├── build_exe.py              # PyInstaller 打包脚本
 ├── requirements.txt          # Python 依赖
-├── Procfile                  # Railway 部署入口
+├── .env.example              # 环境变量模板
 ├── .env                      # API 密钥（不提交到 Git）
 │
 ├── app/                      # 核心业务逻辑（桌面端和 Web 端共用）
@@ -48,14 +48,19 @@
 │   └── utils.py              #   工具函数
 │
 ├── ui/                       # 桌面端 UI 组件
+│   ├── main_window.py        #   主窗口（AgentWindow）
+│   ├── styles.py             #   主题色、气泡样式、全局 QSS
+│   ├── dialogs.py            #   对话框（统计、图片预览、服务器设置）
+│   ├── workers.py            #   语音录制/识别后台线程
 │   └── widgets/
+│       ├── chat_bubble.py    #   聊天气泡 + 记忆卡片组件
 │       └── command_input.py  #   输入框组件（拖拽、自动补全）
 │
 └── web/                      # Web 部署目录
     ├── main.py               #   Flask 后端（全部 API 路由）
     ├── index.html            #   Web 前端 SPA
     ├── admin.html            #   管理员后台 SPA
-    ├── import_setup.py       #   路径修复（Railway 部署用）
+    ├── import_setup.py       #   路径修复（Web 部署用）
     └── requirements.txt      #   Web 端依赖
 ```
 
@@ -110,7 +115,7 @@
 pip install -r requirements.txt
 
 # 桌面端额外依赖
-pip install PyQt5
+pip install PySide6 PyQt-Fluent-Widgets
 ```
 
 ### 配置 API 密钥
@@ -127,7 +132,7 @@ cp .env.example .env
 
 ### 启动运行
 
-**Web 模式（本地）：**
+**1. 启动 Web 服务：**
 
 ```bash
 cd web
@@ -136,49 +141,17 @@ python main.py
 
 浏览器打开 http://127.0.0.1:5000 ，管理后台在 http://127.0.0.1:5000/admin
 
-**桌面 GUI 模式：**
+**2. 启动桌面端（新终端）：**
 
 ```bash
 python pyqt_local_agent.py
 ```
 
-桌面端启动时会自动检测可用服务器：优先连接本地 `http://127.0.0.1:5000`，不可用则连接远程。也可点击标题栏右侧的设置按钮手动切换。
-
-**本地完整运行（Web + 桌面 + 管理）：**
-
-```bash
-# 1. 启动 Web 服务
-cd web && python main.py &
-
-# 2. 启动桌面端（自动连接本地服务）
-cd .. && python pyqt_local_agent.py
-```
-
-在 `.env` 中设置 `SERVER_URL=http://127.0.0.1:5000` 可让 API 客户端默认使用本地服务。
-
-## 部署到 Railway
-
-1. 将代码推送到 Git 仓库
-2. 在 Railway 中连接仓库，自动检测 `Procfile` 并部署
-3. 在 Variables 页面添加环境变量：
-
-| 变量 | 必填 | 说明 | 默认值 |
-|------|------|------|--------|
-| `ZHIPU_API_KEY` | 是 | 智谱 AI API Key | — |
-| `ADMIN_KEY` | 否 | 管理员密码 | — |
-| `BAIDU_APP_ID` | 否 | 百度语音 APP ID | — |
-| `BAIDU_API_KEY` | 否 | 百度语音 API Key | — |
-| `BAIDU_SECRET_KEY` | 否 | 百度语音 Secret Key | — |
-| `LOCAL_AGENT_MODEL` | 否 | 对话模型 | `glm-4-flash-250414` |
-| `LOCAL_AGENT_VISION_MODEL` | 否 | 图片理解模型 | `glm-4v-flash` |
-| `PORT` | 否 | 服务端口 | `5000` |
-| `DATA_DIR` | 否 | 数据目录 | `./data` |
-
-部署完成后访问 `https://your-app.up.railway.app` 即可使用。
+桌面端连接本地服务器 `http://127.0.0.1:5000`，需先启动 Web 服务。
 
 ## API 接口
 
-详见 [使用文档](docs/USAGE.md#api-接口) 。
+详见 [使用文档](USAGE.md#api-接口)。
 
 ## 许可证
 

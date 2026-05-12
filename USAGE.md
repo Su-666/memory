@@ -105,7 +105,6 @@
 
 访问 `/admin` 路径，输入管理员密码登录。
 
-- 远程：`https://memory-n.ccwu.cc/admin`
 - 本地：`http://127.0.0.1:5000/admin`
 
 需要在环境变量（`.env`）中设置 `ADMIN_KEY`。
@@ -119,26 +118,12 @@
 - **导出 JSON** — 导出全部记忆为 JSON 文件
 - **下载数据库** — 下载 SQLite 数据库文件备份
 
-### 直接 API 访问
-
-也可以不通过浏览器，直接调用管理员 API：
-
-```bash
-# 查看所有数据
-curl "https://your-app.up.railway.app/api/admin/data?key=你的密码"
-
-# 导出 JSON
-curl "https://your-app.up.railway.app/api/admin/export?key=你的密码" -o memories.json
-
-# 下载数据库
-curl "https://your-app.up.railway.app/api/admin/backup?key=你的密码" -o agent.db
-```
 
 ---
 
 ## 桌面端使用
 
-桌面端是一个 PyQt5 桌面应用，通过 API 连接远程服务器。
+桌面端基于 PySide6 + PyQt-Fluent-Widgets 构建，采用 Fluent 设计风格，通过 API 连接本地服务器。
 
 ### 启动
 
@@ -148,14 +133,22 @@ python pyqt_local_agent.py
 
 ### 功能特性
 
-- **无边框窗口** — 自定义标题栏，支持拖拽移动
-- **暗色模式** — 一键切换亮色/暗色主题，设置自动保存
-- **语音对话** — 支持语音输入和语音回复
-- **文件拖拽** — 直接拖拽文件到窗口上传
-- **自动补全** — 输入框支持历史命令补全
+- **Fluent 设计风格** — 圆角卡片、渐变背景、统一色彩体系
+- **暗色模式** — 一键切换亮色/暗色主题（Ctrl+T），设置自动保存
+- **语音对话** — 支持语音输入和语音回复，连续对话模式
+- **文件拖拽** — 直接拖拽文件到输入区域上传
+- **自动补全** — 输入框支持 `/搜`、`/search`、`帮我记住` 等命令补全
 - **统计面板** — 查看记忆总数、热门标签、存储信息
-- **图片预览** — 搜索结果中的图片可点击查看大图
-- **断线重连** — 网络中断后自动重连服务器
+- **图片预览** — 搜索结果中的图片可点击放大查看
+- **断线重连** — 网络中断后自动重连，指数退避策略
+- **打字机效果** — 助手回复逐字显示动画
+- **快捷键** — Ctrl+T 切换主题，Ctrl+L 清空对话
+
+### 配置
+
+桌面端连接本地服务器 `http://127.0.0.1:5000`，需先启动 Web 服务再打开桌面端。
+
+如需使用语音功能，需在 `.env` 中配置百度语音密钥（`BAIDU_APP_ID`、`BAIDU_API_KEY`、`BAIDU_SECRET_KEY`）。
 
 ### 打包为 EXE
 
@@ -163,13 +156,13 @@ python pyqt_local_agent.py
 python build_exe.py
 ```
 
-生成的 `dist/记忆助手.exe` 为单文件可执行程序。
+生成的 `dist/记忆助手.exe` 为单文件可执行程序，无需安装 Python 环境即可运行。
 
 ---
 
 ## API 接口
 
-所有接口的基础 URL 为服务地址（如 `https://your-app.up.railway.app`）。
+所有接口的基础 URL 为本地服务地址 `http://127.0.0.1:5000`。
 
 请求和响应均为 JSON 格式，需要设置 `Content-Type: application/json`。
 
@@ -350,7 +343,7 @@ python build_exe.py
 
 **curl 示例：**
 ```bash
-curl -X POST https://your-app.up.railway.app/api/upload \
+curl -X POST http://127.0.0.1:5000/api/upload \
   -F "files=@photo.jpg" \
   -F "caption=这是我的猫"
 ```

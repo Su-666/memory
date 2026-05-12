@@ -25,7 +25,7 @@ try:
 except ImportError:
     _SSL_CTX = ssl.create_default_context()
 
-_DEFAULT_SERVER = os.environ.get("SERVER_URL", "https://memory-n.ccwu.cc")
+_DEFAULT_SERVER = os.environ.get("SERVER_URL", "http://127.0.0.1:5000")
 
 
 class ApiError(Exception):
@@ -68,14 +68,14 @@ class MemoryApiClient:
     def _set_cached(self, key: str, value: dict):
         self._cache[key] = (value, time.time())
 
-    def _make_request(self, method: str, path: str, data=None, files=None, _retry=True) -> dict:
+    def _make_request(self, method: str, path: str, data=None, files=None, _retry=True, timeout=None) -> dict:
         """发送 HTTP 请求（带自动重试）"""
         last_error = None
         attempts = self.MAX_RETRIES if _retry else 1
 
         for attempt in range(attempts):
             try:
-                result = self._do_request(method, path, data, files)
+                result = self._do_request(method, path, data, files, timeout=timeout)
                 self._connected = True
                 return result
             except ApiError as e:
@@ -98,7 +98,7 @@ class MemoryApiClient:
         self._connected = False
         raise last_error
 
-    def _do_request(self, method: str, path: str, data=None, files=None) -> dict:
+    def _do_request(self, method: str, path: str, data=None, files=None, timeout=None) -> dict:
         """执行单次 HTTP 请求"""
         url = f"{self.base_url}{path}"
         headers = {
@@ -119,7 +119,7 @@ class MemoryApiClient:
             req = urllib.request.Request(url, headers=headers, method=method)
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout, context=_SSL_CTX) as resp:
+            with urllib.request.urlopen(req, timeout=timeout or self.timeout, context=_SSL_CTX) as resp:
                 raw = resp.read()
                 if not raw:
                     return {}
@@ -252,12 +252,15 @@ class MemoryApiClient:
         """清除聊天历史"""
         return self._make_request("POST", "/api/clear")
 
-    # ---- 语音（桌面端通常本地处理，但保留远程能力） ----
+    # ---- 语音 ----
 
     def speech_recognize(self, audio_bytes: bytes) -> dict:
-        """语音识别（通过服务端 Baidu ASR）- 带重试"""
+        """语音识别（通过服务端 Baidu ASR）- 带重试，短超时"""
         last_error = None
-        for attempt in range(self.MAX_RETRIES):
+        speech_timeout = min(self.timeout, 20)
+        speech_retries = 2
+        speech_delays = [0.5, 1.5]
+        for attempt in range(speech_retries):
             try:
                 boundary = uuid.uuid4().hex
                 body = bytearray()
@@ -277,7 +280,7 @@ class MemoryApiClient:
                     headers["X-Client-Id"] = self.client_id
                 req = urllib.request.Request(url, data=bytes(body), headers=headers, method="POST")
 
-                with urllib.request.urlopen(req, timeout=self.timeout, context=_SSL_CTX) as resp:
+                with urllib.request.urlopen(req, timeout=speech_timeout, context=_SSL_CTX) as resp:
                     raw = resp.read()
                     self._connected = True
                     return json.loads(raw.decode("utf-8")) if raw else {}
@@ -300,15 +303,16 @@ class MemoryApiClient:
             except Exception as e:
                 last_error = ApiError(f"语音识别失败: {e}", retryable=True)
 
-            if attempt < self.MAX_RETRIES - 1:
-                time.sleep(self.RETRY_DELAYS[min(attempt, len(self.RETRY_DELAYS) - 1)])
+            if attempt < speech_retries - 1:
+                time.sleep(speech_delays[min(attempt, len(speech_delays) - 1)])
 
         self._connected = False
         raise last_error
 
     def speech_synthesize(self, text: str) -> dict:
-        """语音合成（通过服务端 Baidu TTS）"""
-        return self._make_request("POST", "/api/speech_synthesize", data={"text": text})
+        """语音合成（通过服务端 Baidu TTS）- 短超时"""
+        return self._make_request("POST", "/api/speech_synthesize",
+                                  data={"text": text}, timeout=15)
 
     # ---- 健康检查 ----
 

@@ -2251,9 +2251,9 @@
         let voiceScriptNode = null;     // ScriptProcessorNode（实时VAD）
         let voiceRecorder = null;       // MediaRecorder
         let voiceVadActive = false;     // VAD是否运行中
-        const VAD_RMS_THRESHOLD = 500;  // 语音开始阈值（时域RMS，参考桌面端800）
-        const VAD_SILENCE_MS = 2000;    // 静音超过此时间停止录音（与桌面端一致）
-        const VAD_MIN_RECORD_MS = 800;  // 最少录音时间
+        const VAD_RMS_THRESHOLD = 500;  // 语音开始阈值（时域RMS）
+        const VAD_SILENCE_MS = 1200;    // 静音超过此时间停止录音
+        const VAD_MIN_RECORD_MS = 500;  // 最少录音时间
         const VAD_MAX_RECORD_MS = 30000; // 最长录音时间（安全阀）
         let voiceRecordStartTime = 0;   // 录音开始时间
         let voiceSpeechStarted = false; // 是否已检测到语音开始
@@ -2370,7 +2370,7 @@
         let voiceSilenceStart = 0;  // 静音开始时间戳
         let voiceSpeechConfirmCount = 0; // 连续超阈值帧计数（防噪声误触发）
         const SPEECH_CONFIRM_FRAMES = 2; // 需要连续 2 帧超阈值才确认语音开始
-        const BARGE_IN_THRESHOLD = 800; // 打断阈值高于普通VAD，避免TTS自身声音误触发
+        const BARGE_IN_THRESHOLD = 700; // 打断阈值
         let voiceTtsStartTime = 0;      // TTS开始播放时间
         function handleVAD(rms) {
             if (!voiceVadActive) return;
@@ -2415,9 +2415,9 @@
                     }
                 }
             } else if (voiceState === 'speaking') {
-                // 朗读中：检测用户说话进行打断（延迟1.5s避免TTS自身声音触发）
+                // 朗读中：检测用户说话进行打断
                 const elapsed = now - voiceTtsStartTime;
-                if (elapsed > 1500 && rms > BARGE_IN_THRESHOLD) {
+                if (elapsed > 800 && rms > BARGE_IN_THRESHOLD) {
                     console.log(`[VAD] 打断检测 RMS=${rms.toFixed(0)}`);
                     interruptSpeaking();
                 }
@@ -2515,7 +2515,6 @@
                 console.log(`[语音] 录音数据: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.wav');
-                formData.append('skip_tts', 'true');
 
                 // 如果有待保存内容，传给后端处理确认/取消/合并
                 if (pendingSaveText) {
@@ -2583,31 +2582,11 @@
                     showResults(data.results);
                 }
 
-                // 播放回复语音（先尝试已有的 audio，否则单独请求 TTS）
+                // 播放回复语音（服务端已同步返回 audio）
                 if (data.audio) {
                     voiceState = 'speaking';
                     updateVoiceButton();
                     await playVoiceAudio(data.audio);
-                } else if (data.text) {
-                    // 单独请求 TTS，让文字响应先展示
-                    voiceState = 'speaking';
-                    updateVoiceButton();
-                    try {
-                        const ttsResp = await fetch('/api/speech_synthesize', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ text: data.text.slice(0, 300) })
-                        });
-                        const ttsData = await ttsResp.json();
-                        if (ttsData.audio) {
-                            await playVoiceAudio(ttsData.audio);
-                        } else {
-                            resetToListening();
-                        }
-                    } catch (ttsErr) {
-                        console.warn('TTS 请求失败:', ttsErr);
-                        resetToListening();
-                    }
                 } else {
                     resetToListening();
                 }

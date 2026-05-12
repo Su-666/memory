@@ -3,9 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from PyQt5.QtCore import Qt, pyqtSignal  # pyright: ignore[reportMissingImports]
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent  # pyright: ignore[reportMissingImports]
-from PyQt5.QtWidgets import QCompleter, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget  # pyright: ignore[reportMissingImports]
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtWidgets import QCompleter, QHBoxLayout, QLabel, QWidget
+from qfluentwidgets import isDarkTheme
+
+from qfluentwidgets import LineEdit, PushButton
 
 
 @dataclass(frozen=True)
@@ -20,15 +23,16 @@ class DropSubmit:
 
 
 class CommandInput(QWidget):
-    submitted_text = pyqtSignal(object)
-    submitted_drop = pyqtSignal(object)
+    submitted_text = Signal(object)
+    submitted_drop = Signal(object)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setAcceptDrops(True)
         self._pending_paths: list[str] = []
+        self._drag_over = False
 
-        self._edit = QLineEdit()
+        self._edit = LineEdit()
         self._edit.setPlaceholderText("输入一句话，或拖入图片 / 文件后添加说明…")
         self._edit.setClearButtonEnabled(True)
         self._edit.setObjectName("commandLineEdit")
@@ -36,21 +40,27 @@ class CommandInput(QWidget):
 
         completer = QCompleter(["/search ", "/搜 ", "帮我记住 ", "帮我查找 "], self._edit)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
-        completer.setFilterMode(Qt.MatchContains)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
         self._edit.setCompleter(completer)
         self._edit.textChanged.connect(self._update_badge)
 
         self._attach_badge = QLabel("")
         self._attach_badge.setObjectName("attachBadge")
-        self._attach_badge.setAlignment(Qt.AlignCenter)
+        self._attach_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._attach_badge.setVisible(False)
 
-        self._delete_btn = QPushButton("×")
+        self._delete_btn = PushButton("×")
         self._delete_btn.setObjectName("deleteAttachBtn")
-        self._delete_btn.setFixedSize(26, 26)
+        self._delete_btn.setFixedSize(24, 24)
         self._delete_btn.setToolTip("移除当前附件")
         self._delete_btn.setVisible(False)
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._delete_btn.clicked.connect(self.clear_pending_attachments)
+        self._delete_btn.setStyleSheet(
+            "QPushButton{background:rgba(239,68,68,0.12); border:none; border-radius:12px; "
+            "color:#ef4444; font-size:14px; font-weight:700;}"
+            "QPushButton:hover{background:rgba(239,68,68,0.25);}"
+        )
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -112,10 +122,16 @@ class CommandInput(QWidget):
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
+            self._set_drag_highlight(True)
             return
         event.ignore()
 
+    def dragLeaveEvent(self, event) -> None:
+        self._set_drag_highlight(False)
+        super().dragLeaveEvent(event)
+
     def dropEvent(self, event: QDropEvent) -> None:
+        self._set_drag_highlight(False)
         if not event.mimeData().hasUrls():
             event.ignore()
             return
@@ -129,3 +145,16 @@ class CommandInput(QWidget):
         self._pending_paths.extend(paths)
         self._update_badge(self._edit.text())
         event.acceptProposedAction()
+
+    def _set_drag_highlight(self, on: bool):
+        self._drag_over = on
+        dark = isDarkTheme()
+        if on:
+            border_c = "rgba(90,232,184,0.50)" if not dark else "rgba(90,232,184,0.40)"
+            bg_c = "rgba(15,118,110,0.06)" if not dark else "rgba(90,232,184,0.06)"
+            self.setStyleSheet(
+                f"CommandInput{{border:2px dashed {border_c}; "
+                f"background:{bg_c}; border-radius:12px;}}"
+            )
+        else:
+            self.setStyleSheet("")
