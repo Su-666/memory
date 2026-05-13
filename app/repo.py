@@ -303,7 +303,8 @@ def list_recent(conn: sqlite3.Connection, *, limit: int = 30) -> list[dict[str, 
     ).fetchall():
         file_path = str(row["file_path"] or "").strip()
         if file_path:
-            tag = "附件" if "." in file_path.rsplit("/", 1)[-1].rsplit("\\", 1)[-1] else "文件"
+            suffix = Path(file_path).suffix
+            tag = "附件" if suffix else "文件"
         else:
             tag = "文本"
         items.append(
@@ -362,50 +363,9 @@ def search_advanced(conn: sqlite3.Connection, conditions: dict[str, Any]) -> lis
     date_filter_active = bool(date_from or date_to)
 
     if query:
-        # FTS 搜索 + 日期过滤（在 SQL 层完成，避免 Python 循环）
-        if date_filter_active:
-            from .search import _tokenize, _fts_query
-            tokens = _tokenize(query)
-            fts_q = _fts_query(tokens) or query
-            wheres: list[str] = ["memories_fts MATCH ?"]
-            params: list[Any] = [fts_q]
-            if date_from:
-                wheres.append("m.updated_at >= ?")
-                params.append(date_from)
-            if date_to:
-                wheres.append("m.updated_at <= ?")
-                params.append(date_to + " 23:59:59")
-            where_sql = " AND ".join(wheres)
-            params.append(limit * 2)
-            try:
-                rows = conn.execute(
-                    f"""
-                    SELECT m.id, m.title, m.summary, m.body, m.file_path, m.updated_at,
-                           bm25(memories_fts) AS rank
-                    FROM memories_fts
-                    JOIN memories m ON m.id = memories_fts.rowid
-                    WHERE {where_sql}
-                    ORDER BY rank
-                    LIMIT ?
-                    """,
-                    tuple(params),
-                ).fetchall()
-                results = [
-                    {
-                        "entity_type": "memory",
-                        "entity_id": int(row["id"]),
-                        "title": row["title"],
-                        "time": row["updated_at"],
-                        "summary": (row["summary"] or row["body"] or "")[:60],
-                        "file_path": str(row["file_path"] or "").strip(),
-                        "score": float(row["rank"]),
-                    }
-                    for row in rows
-                ]
-                return results[:limit]
-            except Exception:
-                pass
+        # 先用公共搜索接口获取结果
         results = app_search.search(conn, query=query, sort_mode="relevant", limit=limit * 2)
+        # 在 Python 层过滤日期范围
         if date_filter_active:
             filtered = []
             for r in results:

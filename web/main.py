@@ -200,10 +200,11 @@ def _invalidate_caches():
     response_cache.invalidate("stats")
     response_cache.invalidate("tags")
     # 清除搜索结果缓存
-    app_search._search_cache.clear()
+    app_search.invalidate_search_cache()
 
 
 _storage_size_cache = {"size": 0, "time": 0}
+_storage_size_lock = threading.Lock()
 _STORAGE_CACHE_TTL = 120  # 2 分钟缓存存储大小
 
 class RateLimiter:
@@ -475,7 +476,8 @@ def chat():
     result = handle_intent(conn, vault_root, user_text, call_llm_chat_fn=llm_chat_fn)
 
     if result.get('error'):
-        return jsonify({'error': result['text']}), 500
+        logger.error("聊天处理失败: %s", result['text'])
+        return jsonify({'error': '处理失败，请重试'}), 500
 
     resp = {'type': 'assistant', 'text': result['text']}
     if result.get('results'):
@@ -557,6 +559,8 @@ def confirm_save():
         return jsonify({'error': '没有待保存的内容'}), 400
     if len(text) > 4000 or len(to_save) > 4000:
         return jsonify({'error': '输入内容过长'}), 400
+    if not text:
+        return jsonify({'error': '请输入确认内容'}), 400
 
     conn = get_db_conn()
     vault_root = get_vault_root()
@@ -579,12 +583,15 @@ def search_memories():
     query = data.get('query', '').strip()
     if not query:
         return jsonify({'error': '请输入搜索内容'}), 400
+    if len(query) > 500:
+        return jsonify({'error': '搜索内容过长'}), 400
     conn = get_db_conn()
     try:
         results = app_search.search(conn, query=query, sort_mode="relevant", limit=20)
         return jsonify({'results': results})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("搜索失败: %s", e)
+        return jsonify({'error': '搜索失败，请重试'}), 500
 
 @app.route('/api/save', methods=['POST'])
 @rate_limit
@@ -593,6 +600,8 @@ def save_memory():
     text = data.get('text', '').strip()
     if not text:
         return jsonify({'error': '请输入要保存的内容'}), 400
+    if len(text) > 10000:
+        return jsonify({'error': '内容过长（最多10000字）'}), 400
     conn = get_db_conn()
     vault_root = get_vault_root()
     try:
@@ -601,7 +610,8 @@ def save_memory():
         _invalidate_caches()
         return jsonify({'success': True, 'message': '已保存'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("保存记忆失败: %s", e)
+        return jsonify({'error': '保存失败，请重试'}), 500
 
 @app.route('/api/upload', methods=['POST'])
 @rate_limit
@@ -682,7 +692,8 @@ def upload_file():
         else:
             return jsonify({'error': '无法保存文件'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("文件上传失败: %s", e)
+        return jsonify({'error': '上传失败，请重试'}), 500
 
 
 # ============ 语音 ============
@@ -832,7 +843,8 @@ def voice_dialogue():
         return jsonify(resp)
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("语音对话失败: %s", e)
+        return jsonify({'error': '语音对话失败，请重试'}), 500
 
 @app.route('/api/clear', methods=['POST'])
 @rate_limit
@@ -925,6 +937,10 @@ def search_memories_advanced():
 
         if not query and not tags:
             return jsonify({'error': '请提供搜索关键词或标签'}), 400
+        if query and len(query) > 500:
+            return jsonify({'error': '搜索内容过长'}), 400
+        if not isinstance(tags, list):
+            return jsonify({'error': '标签必须是数组'}), 400
 
         conn = get_db_conn()
         search_conditions = {
@@ -934,7 +950,8 @@ def search_memories_advanced():
         results = app_repo.search_advanced(conn, search_conditions)
         return jsonify({'results': results, 'total': len(results)})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("高级搜索失败: %s", e)
+        return jsonify({'error': '搜索失败，请重试'}), 500
 
 @app.route('/api/tags', methods=['GET'])
 @rate_limit
@@ -979,10 +996,11 @@ def get_stats():
 
         # 存储信息（带缓存，避免每次遍历目录）
         now_ts = time.time()
-        if now_ts - _storage_size_cache["time"] > _STORAGE_CACHE_TTL:
-            _storage_size_cache["size"] = _calculate_storage_size(get_vault_root())
-            _storage_size_cache["time"] = now_ts
-        storage_size = _storage_size_cache["size"]
+        with _storage_size_lock:
+            if now_ts - _storage_size_cache["time"] > _STORAGE_CACHE_TTL:
+                _storage_size_cache["size"] = _calculate_storage_size(get_vault_root())
+                _storage_size_cache["time"] = now_ts
+            storage_size = _storage_size_cache["size"]
 
         stats = {
             'total_memories': total_memories,
@@ -1037,7 +1055,8 @@ def delete_memory(memory_id):
             return jsonify({'error': '记忆不存在'}), 404
         return jsonify({'success': True, 'message': '记忆删除成功'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("删除记忆失败 ID=%s: %s", memory_id, e)
+        return jsonify({'error': '删除失败，请重试'}), 500
 
 # ============ 管理员页面 & 接口 ============
 
@@ -1123,10 +1142,15 @@ def admin_memories():
     """分页返回记忆列表（需管理员密码）"""
     if not _check_admin_key():
         return jsonify({'error': '未授权'}), 403
-    page = max(1, int(request.args.get("page", 1)))
-    page_size = min(100, max(1, int(request.args.get("page_size", 20))))
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        page_size = min(100, max(1, int(request.args.get("page_size", 20))))
+    except (ValueError, TypeError):
+        page, page_size = 1, 20
     q = request.args.get("q", "").strip()
     tag = request.args.get("tag", "").strip()
+    if len(q) > 200:
+        return jsonify({'error': '搜索内容过长'}), 400
     offset = (page - 1) * page_size
     conn = get_db_conn()
     try:
@@ -1177,8 +1201,11 @@ def admin_data():
         total_files = row_file[0] if row_file else 0
 
         # 分页参数
-        page = max(1, int(request.args.get("page", 1)))
-        page_size = min(500, max(1, int(request.args.get("page_size", 100))))
+        try:
+            page = max(1, int(request.args.get("page", 1)))
+            page_size = min(500, max(1, int(request.args.get("page_size", 100))))
+        except (ValueError, TypeError):
+            page, page_size = 1, 100
         offset = (page - 1) * page_size
 
         rows = conn.execute(
@@ -1213,7 +1240,8 @@ def admin_delete_memory(memory_id):
             return jsonify({'error': '记忆不存在'}), 404
         return jsonify({'success': True, 'message': '记忆及文件已删除'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("管理员删除记忆失败 ID=%s: %s", memory_id, e)
+        return jsonify({'error': '删除失败，请重试'}), 500
 
 
 @app.route('/api/admin/memory/<int:memory_id>', methods=['PUT'])
@@ -1231,13 +1259,22 @@ def admin_update_memory(memory_id):
         summary = data.get('summary')
         body = data.get('body')
         tags = data.get('tags')
-        kwargs = {"memory_id": memory_id}
+        kwargs: dict = {"memory_id": memory_id}
         if title is not None:
-            kwargs["title"] = str(title).strip()
+            title = str(title).strip()
+            if len(title) > 200:
+                return jsonify({'error': '标题过长（最多200字）'}), 400
+            kwargs["title"] = title
         if summary is not None:
-            kwargs["summary"] = str(summary).strip()
+            summary = str(summary).strip()
+            if len(summary) > 500:
+                return jsonify({'error': '摘要过长（最多500字）'}), 400
+            kwargs["summary"] = summary
         if body is not None:
-            kwargs["body"] = str(body).strip()
+            body = str(body).strip()
+            if len(body) > 50000:
+                return jsonify({'error': '内容过长（最多50000字）'}), 400
+            kwargs["body"] = body
         if tags is not None:
             if isinstance(tags, list):
                 kwargs["extra_patch"] = {"tags": [str(t).strip() for t in tags if str(t).strip()]}
@@ -1249,7 +1286,8 @@ def admin_update_memory(memory_id):
         _invalidate_caches()
         return jsonify({'success': True, 'message': '记忆已更新'})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error("更新记忆失败 ID=%s: %s", memory_id, e)
+        return jsonify({'error': '更新失败，请重试'}), 500
 
 
 @app.route('/api/admin/backup', methods=['GET'])
@@ -1689,8 +1727,9 @@ def admin_clear_cache():
     if not _check_admin_key():
         return jsonify({'error': '未授权'}), 403
     _invalidate_caches()
-    _storage_size_cache["size"] = 0
-    _storage_size_cache["time"] = 0
+    with _storage_size_lock:
+        _storage_size_cache["size"] = 0
+        _storage_size_cache["time"] = 0
     return jsonify({"success": True, "message": "缓存已清除"})
 
 

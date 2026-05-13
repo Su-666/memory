@@ -78,11 +78,15 @@ def _fts_query(tokens: list[str]) -> str:
         return ""
     parts: list[str] = []
     for t in tokens:
-        t = t.replace('"', "")
+        # FTS5 特殊字符转义：双引号、星号、括号、减号等
+        t = t.replace('"', '""').replace("*", "").replace("(", "").replace(")", "")
+        t = t.replace("-", " ").replace(":", " ").strip()
+        if not t:
+            continue
         if len(t) >= 2:
-            parts.append(f'{t}*')
+            parts.append(f'"{t}"*')
         else:
-            parts.append(t)
+            parts.append(f'"{t}"')
     return " OR ".join(parts)
 
 
@@ -134,6 +138,16 @@ _search_cache: dict[str, tuple[list, float]] = {}
 _SEARCH_CACHE_TTL = 60  # 60秒
 
 
+def invalidate_search_cache() -> None:
+    """清除搜索结果缓存（供外部模块调用，避免直接访问内部状态）"""
+    _search_cache.clear()
+
+
+def invalidate_file_exists_cache() -> None:
+    """清除文件存在性缓存"""
+    _fexists_cache.clear()
+
+
 def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relevant", limit: int = 50) -> list[dict[str, Any]]:
     q = query.strip()
     if not q:
@@ -181,7 +195,7 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
                     "score": float(row["rank"]),
                 }
             )
-    except Exception as e:
+    except (sqlite3.OperationalError, sqlite3.DatabaseError) as e:
         logger.debug("FTS 搜索失败，回退到 LIKE: %s", e)
 
     if not results:

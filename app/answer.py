@@ -114,7 +114,13 @@ def _call_answer_model(query: str, memories: list[dict[str, Any]]) -> AnswerResu
         answer = str(parsed.get("answer", "")).strip()
         conf = float(parsed.get("confidence") or 0.0)
         return AnswerResult(answer=answer, confidence=max(0.0, min(1.0, conf)))
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.warning("回答模型返回格式异常: %s", e)
+        return None
+    except (ConnectionError, TimeoutError, OSError) as e:
+        logger.warning("回答模型网络异常: %s", e)
+        return None
+    except RuntimeError as e:
         logger.warning("回答模型调用失败: %s", e)
         return None
 

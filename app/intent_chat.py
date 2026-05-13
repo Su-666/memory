@@ -284,7 +284,11 @@ def build_memory_metadata_llm(text: str) -> tuple[str, str]:
             summary = str(parsed.get("summary", "")).strip()
             if title and summary:
                 return (title[:20], summary[:80])
-    except Exception as e:
+    except (json.JSONDecodeError, KeyError, IndexError) as e:
+        logger.warning("LLM 元数据提取返回格式异常，回退到本地规则: %s", e)
+    except (ConnectionError, TimeoutError, OSError) as e:
+        logger.warning("LLM 元数据提取网络异常，回退到本地规则: %s", e)
+    except RuntimeError as e:
         logger.warning("LLM 元数据提取失败，回退到本地规则: %s", e)
     return build_memory_metadata_fast(text)
 
@@ -316,7 +320,7 @@ def search_memory(conn, user_text: str, limit: int = 5) -> list:
             "卡号", "账号", "身份证", "银行卡", "QQ号", "微信号", "WiFi密码",
         ]
         for kw in important_keywords:
-            if kw in query and kw not in seen_ids:
+            if kw in query:
                 try:
                     items = app_search.search(conn, query=kw, sort_mode="relevant", limit=10)
                     for item in items:
