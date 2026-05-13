@@ -45,7 +45,9 @@ def _tokenize(query: str) -> list[str]:
         if len(seg) < 2:
             continue
         seen_ng: set[str] = set()
-        for n in (2, 3):
+        # 短句段优先 2-gram，长句段才拆 3-gram
+        ngrams = (2, 3) if len(seg) > 6 else (2,)
+        for n in ngrams:
             if len(seg) < n:
                 continue
             for i in range(0, len(seg) - n + 1):
@@ -53,9 +55,9 @@ def _tokenize(query: str) -> list[str]:
                 if t not in _STOP_WORDS and t not in seen_ng:
                     tokens.append(t)
                     seen_ng.add(t)
-                if len(seen_ng) >= 15:
+                if len(seen_ng) >= 8:
                     break
-            if len(seen_ng) >= 15:
+            if len(seen_ng) >= 8:
                 break
     cleaned: list[str] = []
     seen: set[str] = set()
@@ -127,10 +129,24 @@ def _path_exists(file_path: str) -> bool:
     return exists
 
 
+# 搜索结果缓存（短 TTL，避免重复查询）
+_search_cache: dict[str, tuple[list, float]] = {}
+_SEARCH_CACHE_TTL = 60  # 60秒
+
+
 def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relevant", limit: int = 50) -> list[dict[str, Any]]:
     q = query.strip()
     if not q:
         return []
+
+    # 检查缓存
+    cache_key = f"{q}:{sort_mode}:{limit}"
+    now = time.time()
+    cached = _search_cache.get(cache_key)
+    if cached is not None:
+        results, ts = cached
+        if now - ts < _SEARCH_CACHE_TTL:
+            return results
 
     results: list[dict[str, Any]] = []
     tokens = _tokenize(q)
@@ -223,4 +239,12 @@ def search(conn: sqlite3.Connection, *, query: str, sort_mode: SortMode = "relev
                 item["_nscore"] = float(score)
         results.sort(key=lambda x: (x.get("_nscore", 0), x.get("time", "")), reverse=True)
 
-    return results[:limit]
+    final = results[:limit]
+    # 存入缓存
+    _search_cache[cache_key] = (final, time.time())
+    # 定期清理过期缓存
+    if len(_search_cache) > 200:
+        stale_keys = [k for k, (_, ts) in _search_cache.items() if time.time() - ts > _SEARCH_CACHE_TTL * 2]
+        for k in stale_keys:
+            del _search_cache[k]
+    return final

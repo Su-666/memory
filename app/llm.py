@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import logging
 
-from .zhipu_client import call_chat
+from typing import Generator
+
+from .zhipu_client import call_chat, call_chat_stream
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +105,37 @@ def call_llm_chat(
 
     content = message.get("content", "")
     return str(content).strip() if content else None
+
+
+def call_llm_chat_stream(
+    user_query: str,
+    history: list[dict],
+    *,
+    system_prompt: str | None = None,
+    temperature: float = 0.85,
+    max_tokens: int = 4096,
+) -> Generator[str, None, None]:
+    """流式调用智谱大模型对话，逐 token yield。
+
+    Args:
+        user_query: 用户输入
+        history: 对话历史
+        system_prompt: 系统提示词
+        temperature: 温度参数
+        max_tokens: 最大生成 token 数
+
+    Yields:
+        每个 token 的文本片段
+    """
+    sys_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+    messages = [{"role": "system", "content": sys_prompt}]
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_query})
+
+    yield from call_chat_stream(
+        messages,
+        temperature=temperature,
+        top_p=0.92,
+        max_tokens=max_tokens,
+        timeout=60,
+    )

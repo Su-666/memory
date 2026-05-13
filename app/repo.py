@@ -328,17 +328,7 @@ def get_total_memories(conn: sqlite3.Connection) -> int:
 
 def get_all_tags(conn: sqlite3.Connection, limit: int = 2000) -> list[str]:
     """从 extra_json 中提取标签（限制扫描行数防止全表扫描）"""
-    tag_set: set[str] = set()
-    for row in conn.execute("SELECT extra_json FROM memories WHERE extra_json LIKE '%tags%' ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall():
-        try:
-            extra = json.loads(row["extra_json"])
-            tags = extra.get("tags") or []
-            for t in tags:
-                if t and isinstance(t, str):
-                    tag_set.add(t.strip())
-        except Exception:
-            continue
-    return sorted(tag_set)
+    return [tag for tag, _ in get_tag_counts(conn, limit)]
 
 
 def get_tag_counts(conn: sqlite3.Connection, limit: int = 2000) -> list[tuple[str, int]]:

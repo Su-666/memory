@@ -1707,6 +1707,10 @@
     </div>
 
     <script>
+        const DEBUG = false;
+        const dlog = DEBUG ? console.log.bind(console) : () => {};
+        const dwarn = DEBUG ? console.warn.bind(console) : () => {};
+
         let chatHistory = [];
         let pendingSaveText = null;
 
@@ -1834,39 +1838,73 @@
             scrollToBottom();
 
             try {
-                const response = await fetch('/api/chat', {
+                const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: text })
                 });
 
-                const data = await response.json();
-                if (data.error) {
-                    addBubble('assistant', '哎呀，出了点小问题: ' + data.error);
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => ({}));
+                    addBubble('assistant', '哎呀，出了点小问题: ' + (errData.error || response.statusText));
                     setStatus('出错了');
-                    // 语音模式下出错也要继续监听，否则会卡住
-                    if (voiceVadActive) {
-                        continueVoiceLoop();
-                    }
+                    if (voiceVadActive) continueVoiceLoop();
                 } else {
-                    if (data.pending_save) {
-                        pendingSaveText = data.pending_save;
+                    hideTypingIndicator();
+                    const streamer = createStreamingBubble('assistant');
+                    let pendingSave = null;
+                    let results = [];
+                    let done = false;
+
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let buffer = '';
+
+                    while (!done) {
+                        const { value, done: streamDone } = await reader.read();
+                        if (streamDone) break;
+                        buffer += decoder.decode(value, { stream: true });
+
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || '';
+
+                        for (const line of lines) {
+                            const trimmed = line.trim();
+                            if (!trimmed || !trimmed.startsWith('data: ')) continue;
+                            try {
+                                const evt = JSON.parse(trimmed.slice(6));
+                                if (evt.type === 'token') {
+                                    streamer.append(evt.text);
+                                } else if (evt.type === 'done') {
+                                    done = true;
+                                } else if (evt.type === 'assistant') {
+                                    // save/search 意图一次性返回
+                                    if (!streamer.getText()) {
+                                        streamer.append(evt.text || '');
+                                    }
+                                    if (evt.pending_save) pendingSave = evt.pending_save;
+                                    if (evt.results) results = evt.results;
+                                    done = true;
+                                }
+                            } catch (e) { /* ignore parse errors */ }
+                        }
+                    }
+
+                    if (pendingSave) {
+                        pendingSaveText = pendingSave;
                         showPendingIndicator(true);
                     }
-
-                    addBubbleTypewriter('assistant', data.text);
-
-                    if (data.results && data.results.length > 0) {
-                        showResults(data.results);
+                    if (results.length > 0) {
+                        showResults(results);
                     }
 
                     // 语音模式下自动朗读回复
                     if (voiceVadActive) {
-                        if (data.text) {
-                            // 如果有搜索结果，把结果内容也加入朗读
-                            let textToSpeak = data.text;
-                            if (data.results && data.results.length > 0) {
-                                const r = data.results[0];
+                        const finalText = streamer.getText();
+                        if (finalText) {
+                            let textToSpeak = finalText;
+                            if (results.length > 0) {
+                                const r = results[0];
                                 const summary = r.summary || r.body || '';
                                 if (summary && summary.length < 100) {
                                     textToSpeak += '。' + summary;
@@ -1874,7 +1912,6 @@
                             }
                             await speakText(textToSpeak);
                         } else {
-                            // 没有回复文本，直接继续监听
                             continueVoiceLoop();
                         }
                     }
@@ -1883,15 +1920,11 @@
             } catch (e) {
                 addBubble('assistant', '网络好像不太给力，稍后再试试？');
                 setStatus('网络错误');
-                // 语音模式下网络错误也要继续监听
-                if (voiceVadActive) {
-                    continueVoiceLoop();
-                }
+                if (voiceVadActive) continueVoiceLoop();
             }
 
             hideTypingIndicator();
             setLoading(false);
-            // 语音模式下不覆盖状态（speakText 会自行设置状态）
             if (!voiceVadActive) {
                 setStatus('准备就绪');
             }
@@ -2008,6 +2041,49 @@
                 bubble.innerHTML = escapeHtml(text.substring(0, idx)).replace(/\n/g, '<br>');
                 scrollToBottom();
             }, 30);
+        }
+
+        function createStreamingBubble(type) {
+            const welcome = $chatView.querySelector('.welcome');
+            if (welcome) welcome.remove();
+            maybeAddTimeSeparator();
+            lastMsgTime = Date.now();
+
+            const row = document.createElement('div');
+            row.className = 'bubble-row ' + type;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'avatar ' + type;
+            avatar.textContent = type === 'assistant' ? '暖' : '我';
+
+            const col = document.createElement('div');
+            col.className = 'col';
+
+            if (type === 'assistant') {
+                const name = document.createElement('div');
+                name.className = 'bubble-name';
+                name.textContent = '暖暖';
+                col.appendChild(name);
+            }
+
+            const bubble = document.createElement('div');
+            bubble.className = 'bubble bubble-' + type;
+            bubble.innerHTML = '';
+            col.appendChild(bubble);
+
+            row.appendChild(avatar);
+            row.appendChild(col);
+            $chatView.appendChild(row);
+
+            let fullText = '';
+            return {
+                append(text) {
+                    fullText += text;
+                    bubble.innerHTML = escapeHtml(fullText).replace(/\n/g, '<br>');
+                    scrollToBottom();
+                },
+                getText() { return fullText; },
+            };
         }
 
         function showResults(results) {
@@ -2381,7 +2457,7 @@
                 if (rms > VAD_RMS_THRESHOLD) {
                     voiceSpeechConfirmCount++;
                     if (voiceSpeechConfirmCount >= SPEECH_CONFIRM_FRAMES) {
-                        console.log(`[VAD] 语音确认 RMS=${rms.toFixed(0)}，开始录音`);
+                        dlog(`[VAD] 语音确认 RMS=${rms.toFixed(0)}，开始录音`);
                         voiceSpeechStarted = true;
                         voiceSpeechConfirmCount = 0;
                         voiceSilenceStart = 0;
@@ -2395,7 +2471,7 @@
 
                 // 安全阀：最长录音时间
                 if (recordDuration > VAD_MAX_RECORD_MS) {
-                    console.log('[VAD] 录音超时，自动停止');
+                    dlog('[VAD] 录音超时，自动停止');
                     stopVoiceRecording();
                     return;
                 }
@@ -2410,7 +2486,7 @@
                     }
                     const silenceDuration = now - voiceSilenceStart;
                     if (silenceDuration > VAD_SILENCE_MS && recordDuration > VAD_MIN_RECORD_MS) {
-                        console.log(`[VAD] 静音 ${silenceDuration}ms，停止录音`);
+                        dlog(`[VAD] 静音 ${silenceDuration}ms，停止录音`);
                         stopVoiceRecording();
                     }
                 }
@@ -2418,7 +2494,7 @@
                 // 朗读中：检测用户说话进行打断
                 const elapsed = now - voiceTtsStartTime;
                 if (elapsed > 800 && rms > BARGE_IN_THRESHOLD) {
-                    console.log(`[VAD] 打断检测 RMS=${rms.toFixed(0)}`);
+                    dlog(`[VAD] 打断检测 RMS=${rms.toFixed(0)}`);
                     interruptSpeaking();
                 }
             }
@@ -2508,11 +2584,11 @@
                     audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                     audioBlob = await convertWebMToWAV(audioBlob);
                 } catch (e) {
-                    console.warn('音频转换失败，直接发送:', e);
+                    dwarn('音频转换失败，直接发送:', e);
                     audioBlob = new Blob(audioChunks, { type: audioChunks[0]?.type || 'audio/webm' });
                 }
 
-                console.log(`[语音] 录音数据: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+                dlog(`[语音] 录音数据: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'recording.wav');
 
@@ -2614,7 +2690,7 @@
             window._currentAudio = audio;
 
             const speakTimeout = setTimeout(() => {
-                console.warn('[TTS] 朗读超时，自动继续');
+                dwarn('[TTS] 朗读超时，自动继续');
                 if (window._currentAudio === audio) {
                     audio.pause();
                     window._currentAudio = null;
@@ -3031,7 +3107,7 @@
 
                 const data = await response.json();
                 if (data.error) {
-                    console.warn('语音合成失败:', data.error);
+                    dwarn('语音合成失败:', data.error);
                     setStatus('语音合成失败，继续监听...');
                     continueVoiceLoop();
                     return;

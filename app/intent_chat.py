@@ -4,13 +4,19 @@
 """
 from __future__ import annotations
 
+import json
+import logging
 import random
+import re
 from pathlib import Path
 from typing import Any
 
 from . import repo as app_repo
 from . import search as app_search
-from .answer import answer as app_answer
+from .answer import _local_answer
+from .zhipu_client import call_chat
+
+logger = logging.getLogger(__name__)
 
 
 # ============ 意图判断 ============
@@ -113,7 +119,6 @@ CANCEL_WORDS = frozenset({
 
 def _has_actual_value(text: str) -> bool:
     """检测文本是否包含具体值（数字、邮箱、URL、日期等）"""
-    import re
     if any(c.isdigit() for c in text):
         return True
     if "@" in text and "." in text:
@@ -253,33 +258,76 @@ def build_memory_metadata_fast(text: str) -> tuple[str, str]:
     return (fallback_title, fallback_summary)
 
 
+def build_memory_metadata_llm(text: str) -> tuple[str, str]:
+    """用 LLM 从用户原文中提取标题和摘要，失败时回退到本地规则。"""
+    try:
+        messages = [
+            {"role": "system", "content": "你是一个严格输出 JSON 的中文助手。"},
+            {"role": "user", "content": (
+                "请从以下用户输入中提取一个简短标题和一句话摘要。\n"
+                "要求：\n"
+                "1) title：10字以内，概括核心内容\n"
+                "2) summary：30字以内，保留关键信息（数字、日期、名称等不要遗漏）\n"
+                "3) 只输出严格 JSON，不要输出其他内容\n"
+                "输出格式：\n"
+                '{"title": "...", "summary": "..."}\n'
+                f"用户输入：{text}"
+            )},
+        ]
+        data = call_chat(messages, temperature=0.1, max_tokens=150, timeout=10, retries=1)
+        content = str(data["choices"][0]["message"]["content"]).strip()
+        # 解析 JSON
+        if "{" in content:
+            json_str = content[content.index("{"):content.rindex("}") + 1]
+            parsed = json.loads(json_str)
+            title = str(parsed.get("title", "")).strip()
+            summary = str(parsed.get("summary", "")).strip()
+            if title and summary:
+                return (title[:20], summary[:80])
+    except Exception as e:
+        logger.warning("LLM 元数据提取失败，回退到本地规则: %s", e)
+    return build_memory_metadata_fast(text)
+
+
 # ============ 搜索记忆 ============
 
 def search_memory(conn, user_text: str, limit: int = 5) -> list:
     """统一搜索记忆，智能扩展搜索词"""
     query = extract_search_query(user_text)
 
-    search_queries = [query]
-    important_keywords = [
-        "手机号", "电话号码", "手机号码", "电话", "密码", "地址", "生日", "邮箱",
-        "卡号", "账号", "身份证", "银行卡", "QQ号", "微信号", "WiFi密码",
-    ]
-    for kw in important_keywords:
-        if kw in query and kw not in search_queries:
-            search_queries.append(kw)
-
+    # 先用完整查询搜索，如果已有足够结果就不再扩展
     results: list[dict[str, Any]] = []
     seen_ids: set[int] = set()
-    for sq in search_queries:
-        try:
-            items = app_search.search(conn, query=sq, sort_mode="relevant", limit=20)
-            for item in items:
-                item_id = item.get("id") or item.get("entity_id")
-                if item_id and item_id not in seen_ids:
-                    seen_ids.add(item_id)
-                    results.append(item)
-        except Exception:
-            continue
+
+    try:
+        items = app_search.search(conn, query=query, sort_mode="relevant", limit=20)
+        for item in items:
+            item_id = item.get("id") or item.get("entity_id")
+            if item_id and item_id not in seen_ids:
+                seen_ids.add(item_id)
+                results.append(item)
+    except Exception:
+        pass
+
+    # 结果不足时才用关键词扩展搜索
+    if len(results) < limit:
+        important_keywords = [
+            "手机号", "电话号码", "手机号码", "电话", "密码", "地址", "生日", "邮箱",
+            "卡号", "账号", "身份证", "银行卡", "QQ号", "微信号", "WiFi密码",
+        ]
+        for kw in important_keywords:
+            if kw in query and kw not in seen_ids:
+                try:
+                    items = app_search.search(conn, query=kw, sort_mode="relevant", limit=10)
+                    for item in items:
+                        item_id = item.get("id") or item.get("entity_id")
+                        if item_id and item_id not in seen_ids:
+                            seen_ids.add(item_id)
+                            results.append(item)
+                except Exception:
+                    continue
+                if len(results) >= limit:
+                    break
 
     return results[:limit]
 
@@ -369,7 +417,7 @@ def handle_intent(conn, vault_root: Path, user_text: str, call_llm_chat_fn=None,
                 "saved": False,
             }
         try:
-            title, summary = build_memory_metadata_fast(user_text)
+            title, summary = build_memory_metadata_llm(user_text)
             app_repo.remember_text_smart(conn, text=user_text, vault_root=vault_root, title=title, summary=summary)
             return {
                 "text": random.choice(_SAVE_REPLIES),
@@ -384,10 +432,16 @@ def handle_intent(conn, vault_root: Path, user_text: str, call_llm_chat_fn=None,
     if intent == "search":
         results = search_memory(conn, user_text, limit=8)
         if results:
-            ans = app_answer(user_text, results[:8])
-            if ans and ans.answer:
+            # 仅用本地规则提取精确答案（零延迟，不调用 LLM）
+            contexts = []
+            for m in results[:6]:
+                contexts.append(str(m.get("title", "")))
+                contexts.append(str(m.get("summary", "")))
+                contexts.append(str(m.get("body_snippet", "")))
+            local_ans = _local_answer(user_text, contexts)
+            if local_ans.answer:
                 top_time = str(results[0].get("time", "") or "").strip()
-                response_text = ans.answer
+                response_text = local_ans.answer
                 if top_time:
                     response_text += f"\n（{top_time}）"
             else:

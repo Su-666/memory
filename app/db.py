@@ -62,6 +62,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_memories_created_at
+        ON memories(created_at);
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS usage_stats (
           entity_type TEXT NOT NULL,
           entity_id INTEGER NOT NULL,

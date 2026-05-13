@@ -6,6 +6,7 @@ import os
 import sys
 import base64
 import json
+import logging
 import threading
 import re
 import time
@@ -20,6 +21,7 @@ setup_paths()
 
 from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
+from flask_compress import Compress
 
 # 版本信息
 APP_VERSION = "6.0"
@@ -42,6 +44,14 @@ VAULT_DIR = Path(os.environ.get("VAULT_DIR", str(project_root / "data" / "memory
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 VAULT_DIR.mkdir(parents=True, exist_ok=True)
 
+# 日志配置
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    stream=sys.stderr,
+)
+logger = logging.getLogger("web")
+
 # 导入应用模块
 try:
     from app import db as app_db
@@ -50,17 +60,19 @@ try:
     from app.vault import ensure_vault_root
     from app.vision import understand_image
     from app.intent_chat import (
-        build_memory_metadata_fast,
+        build_memory_metadata_llm,
         handle_intent,
         confirm_save_action,
+        determine_intent,
     )
-    from app.llm import call_llm_chat
+    from app.llm import call_llm_chat, call_llm_chat_stream
 except ModuleNotFoundError as e:
-    print(f"[ERROR] Failed to import app module: {e}", file=sys.stderr, flush=True)
+    logger.error("Failed to import app module: %s", e)
     raise
 
 # Flask 应用
 app = Flask(__name__, static_folder='static', static_url_path='/static')
+Compress(app)
 ALLOWED_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
 CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
@@ -103,17 +115,16 @@ def init_vault_once():
     try:
         imported = app_repo.bootstrap_import_vault(conn, vault_root)
         if imported:
-            print(f"[STARTUP] 导入 {imported} 条新记忆", file=sys.stderr, flush=True)
+            logger.info("导入 %d 条新记忆", imported)
     except Exception as e:
-        print(f"[STARTUP] vault bootstrap import failed: {e}", file=sys.stderr, flush=True)
+        logger.warning("vault bootstrap import failed: %s", e)
     # 清理失效文件记忆
-    if True:
-        try:
-            removed = app_repo.prune_missing_file_memories(conn)
-            if removed:
-                print(f"[STARTUP] 清理 {removed} 条失效记忆", file=sys.stderr, flush=True)
-        except Exception as e:
-            print(f"[STARTUP] prune failed: {e}", file=sys.stderr, flush=True)
+    try:
+        removed = app_repo.prune_missing_file_memories(conn)
+        if removed:
+            logger.info("清理 %d 条失效记忆", removed)
+    except Exception as e:
+        logger.warning("prune failed: %s", e)
 
 # ============ 优化：per-client 聊天历史 ============
 _client_chat_histories: dict[str, list[dict]] = {}
@@ -188,6 +199,8 @@ def _invalidate_caches():
     response_cache.invalidate("recent_memories")
     response_cache.invalidate("stats")
     response_cache.invalidate("tags")
+    # 清除搜索结果缓存
+    app_search._search_cache.clear()
 
 
 _storage_size_cache = {"size": 0, "time": 0}
@@ -276,11 +289,11 @@ def performance_monitor(f):
         try:
             result = f(*args, **kwargs)
             duration = time.time() - start_time
-            print(f"[PERF] {f.__name__}: {duration:.3f}s", file=sys.stderr, flush=True)
+            logger.info("[PERF] %s: %.3fs", f.__name__, duration)
             return result
         except Exception as e:
             duration = time.time() - start_time
-            print(f"[ERROR] {f.__name__}: {duration:.3f}s - {e}", file=sys.stderr, flush=True)
+            logger.error("[PERF] %s: %.3fs - %s", f.__name__, duration, e)
             raise
     return decorated_function
 
@@ -294,15 +307,72 @@ _CACHE_MAX_AGES = {
 }
 
 
+@app.before_request
+def assign_request_id():
+    """为每个请求分配唯一 ID，便于日志追踪"""
+    request.request_id = uuid.uuid4().hex[:12]
+
+
 @app.after_request
-def add_cache_headers(response):
-    """Add Cache-Control headers based on endpoint."""
+def add_response_headers(response):
+    """添加缓存控制和请求 ID 响应头"""
+    response.headers['X-Request-Id'] = getattr(request, 'request_id', '')
     path = request.path
     for prefix, max_age in _CACHE_MAX_AGES.items():
         if path.startswith(prefix):
             response.headers['Cache-Control'] = f'public, max-age={max_age}'
-            return response
+            break
     return response
+
+# ============ 共享业务逻辑 ============
+
+def _delete_memory_with_file(conn, memory_id):
+    """删除记忆及其关联的物理文件"""
+    m = app_repo.get_memory(conn, memory_id)
+    if not m:
+        return False
+    fp = str(m.get("file_path", "") or "").strip()
+    if fp:
+        p = Path(fp).resolve()
+        if p.exists() and p.is_file() and is_path_under(p, VAULT_DIR.resolve()):
+            try:
+                p.unlink()
+            except OSError as e:
+                logger.warning("删除文件失败 %s: %s", fp, e)
+    app_repo.delete_memory(conn, memory_id)
+    _invalidate_caches()
+    return True
+
+def _format_memory_row(row):
+    """格式化数据库行为标准记忆字典"""
+    tags = []
+    try:
+        extra = json.loads(row["extra_json"] or "{}")
+        tags = extra.get("tags", [])
+    except Exception:
+        pass
+    return {
+        "id": row["id"],
+        "title": row["title"] or "",
+        "summary": row["summary"] or "",
+        "body": (row["body"] or "")[:500],
+        "tags": tags,
+        "file_path": row["file_path"] or "",
+        "created_at": row["created_at"] or "",
+        "updated_at": row["updated_at"] or "",
+    }
+
+def _calculate_storage_size(vault_root):
+    """计算 vault 目录的总存储大小（字节）"""
+    storage_size = 0
+    if vault_root.exists():
+        for dirpath, _dirnames, filenames in os.walk(str(vault_root)):
+            for fn in filenames:
+                try:
+                    storage_size += os.path.getsize(os.path.join(dirpath, fn))
+                except OSError:
+                    pass
+    return storage_size
 
 # ============ 路由 ============
 
@@ -317,12 +387,13 @@ def health():
 
 @app.route('/api/diag')
 def diag():
-    """诊断端点：检查 LLM 配置和连通性"""
+    """诊断端点：检查 LLM 配置和连通性（需管理员认证）"""
+    if not _check_admin_key():
+        return jsonify({"error": "需要管理员认证"}), 403
     api_key = os.getenv("ZHIPU_API_KEY", "").strip()
     model = os.getenv("LOCAL_AGENT_MODEL", "").strip()
     result = {
         "zhipu_api_key_set": bool(api_key),
-        "zhipu_api_key_prefix": api_key[:8] + "..." if api_key else "",
         "model": model or "glm-4-flash-250414 (default)",
     }
     # 尝试一次轻量 LLM 调用
@@ -333,7 +404,6 @@ def diag():
             max_tokens=10, timeout=10, retries=0,
         )
         result["llm_test"] = "ok"
-        result["llm_response"] = str(data.get("choices", [{}])[0].get("message", {}).get("content", ""))[:50]
     except Exception as e:
         result["llm_test"] = "failed"
         result["llm_error"] = str(e)[:200]
@@ -350,6 +420,8 @@ def get_version():
 
 @app.route('/api/vault/path', methods=['GET'])
 def get_vault_path():
+    if not _check_admin_key():
+        return jsonify({"error": "需要管理员认证"}), 403
     return jsonify({"path": str(get_vault_root())})
 
 @app.route('/api/memories', methods=['GET'])
@@ -372,12 +444,12 @@ def _make_llm_chat_fn(client_id: str):
         try:
             response = call_llm_chat(query, history)
         except Exception as e:
-            print(f"[LLM_ERROR] call_llm_chat 异常: {e}", file=sys.stderr, flush=True)
+            logger.error("call_llm_chat 异常: %s", e)
             response = None
         if response:
             _append_chat_history(client_id, "assistant", response)
         else:
-            print(f"[LLM_WARN] call_llm_chat 返回 None, query={query[:50]}", file=sys.stderr, flush=True)
+            logger.warning("call_llm_chat 返回 None, query=%s", query[:50])
         return response
     return llm_chat_fn
 
@@ -414,6 +486,67 @@ def chat():
         resp['saved'] = True
     return jsonify(resp)
 
+
+@app.route('/api/chat/stream', methods=['POST'])
+@rate_limit
+def chat_stream():
+    """SSE 流式聊天端点。chat 意图逐 token 流式返回，save/search 意图一次性返回。"""
+    data = _safe_get_json()
+    user_text = data.get('text', '').strip()
+    if not user_text:
+        return jsonify({'error': '请输入内容'}), 400
+    if len(user_text) > 4000:
+        return jsonify({'error': '输入内容过长'}), 400
+
+    conn = get_db_conn()
+    vault_root = get_vault_root()
+    client_id = _get_client_id()
+
+    intent = determine_intent(user_text)
+
+    def generate():
+        # save/search 意图：不走 LLM，一次性返回
+        if intent in ("save", "search"):
+            llm_chat_fn = _make_llm_chat_fn(client_id)
+            result = handle_intent(conn, vault_root, user_text, call_llm_chat_fn=llm_chat_fn)
+            payload = {'type': 'assistant', 'text': result['text']}
+            if result.get('results'):
+                payload['results'] = result['results']
+            if result.get('pending_save'):
+                payload['pending_save'] = result['pending_save']
+            if result.get('saved'):
+                payload['saved'] = True
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            return
+
+        # chat 意图：流式调用 LLM
+        history = _get_chat_history(client_id)
+        _append_chat_history(client_id, "user", user_text)
+
+        # 流式调用 LLM
+        try:
+            full_text = ""
+            for token in call_llm_chat_stream(user_text, history):
+                full_text += token
+                yield f"data: {json.dumps({'type': 'token', 'text': token}, ensure_ascii=False)}\n\n"
+            if full_text:
+                _append_chat_history(client_id, "assistant", full_text)
+            else:
+                full_text = "嗯～我在呢，想聊啥或者想记啥都说哦~"
+                _append_chat_history(client_id, "assistant", full_text)
+                yield f"data: {json.dumps({'type': 'token', 'text': full_text}, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            logger.error("chat_stream LLM 异常: %s", e)
+            fallback = "嗯～我在呢，想聊啥或者想记啥都说哦~"
+            _append_chat_history(client_id, "assistant", fallback)
+            yield f"data: {json.dumps({'type': 'token', 'text': fallback}, ensure_ascii=False)}\n\n"
+
+        yield f"data: {json.dumps({'type': 'done'}, ensure_ascii=False)}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 @app.route('/api/chat/confirm_save', methods=['POST'])
 @rate_limit
 def confirm_save():
@@ -430,7 +563,7 @@ def confirm_save():
 
     reply, final_text = confirm_save_action(text, to_save)
     if final_text:
-        title, summary = build_memory_metadata_fast(final_text)
+        title, summary = build_memory_metadata_llm(final_text)
         mid = app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
         if mid:
             _invalidate_caches()
@@ -463,7 +596,7 @@ def save_memory():
     conn = get_db_conn()
     vault_root = get_vault_root()
     try:
-        title, summary = build_memory_metadata_fast(text)
+        title, summary = build_memory_metadata_llm(text)
         app_repo.remember_text_smart(conn, text=text, vault_root=vault_root, title=title, summary=summary)
         _invalidate_caches()
         return jsonify({'success': True, 'message': '已保存'})
@@ -487,7 +620,7 @@ def upload_file():
     vault_root = get_vault_root()
     paths = []
     for f in files:
-        safe_name = f.filename.replace('\\', '/').replace('..', '').strip()
+        safe_name = Path(f.filename).name.strip()
         safe_name = re.sub(r'[^\w\.\-一-鿿㐀-䶿]', '_', safe_name)
         if not safe_name:
             safe_name = 'unnamed_file'
@@ -532,11 +665,11 @@ def upload_file():
                                 )
                                 success_count += 1
                             except Exception as e:
-                                print(f"[图片理解失败] ID={mid}, error={e}", file=sys.stderr, flush=True)
+                                logger.warning("图片理解失败 ID=%s, error=%s", mid, e)
                     conn2.commit()
-                    print(f"[图片理解完成] 成功={success_count}", file=sys.stderr, flush=True)
+                    logger.info("图片理解完成 成功=%d", success_count)
                 except Exception as e:
-                    print(f"[图片理解线程异常] {e}", file=sys.stderr, flush=True)
+                    logger.error("图片理解线程异常: %s", e)
                 finally:
                     if conn2:
                         try:
@@ -574,7 +707,7 @@ def _get_baidu_client():
         _baidu_client = AipSpeech(app_id, api_key, secret_key)
         return _baidu_client
 
-def synthesize_with_qwen(text: str) -> bytes:
+def synthesize_with_baidu(text: str) -> bytes:
     client = _get_baidu_client()
     text = text.strip()[:300]
     result = client.synthesis(text, 'zh', 1, {'per': 5, 'spd': 7, 'pit': 5, 'vol': 7, 'aue': 6})
@@ -617,7 +750,7 @@ def speech_synthesize():
     if not text:
         return jsonify({'error': '请输入要合成的内容'}), 400
     try:
-        wav_bytes = synthesize_with_qwen(text[:300])
+        wav_bytes = synthesize_with_baidu(text[:300])
         audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
         return jsonify({'audio': audio_b64})
     except Exception as e:
@@ -656,12 +789,12 @@ def voice_dialogue():
         if pending_save_text:
             reply, final_text = confirm_save_action(user_text, pending_save_text)
             if final_text:
-                title, summary = build_memory_metadata_fast(final_text)
+                title, summary = build_memory_metadata_llm(final_text)
                 app_repo.remember_text_smart(conn, text=final_text, vault_root=vault_root, title=title, summary=summary)
             resp = {'user_text': user_text, 'type': 'assistant', 'text': reply, 'saved': True}
             if not skip_tts:
                 try:
-                    audio_bytes = synthesize_with_qwen(reply[:150])
+                    audio_bytes = synthesize_with_baidu(reply[:150])
                     resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
                 except Exception:
                     resp['audio'] = None
@@ -690,10 +823,10 @@ def voice_dialogue():
                 tts_text = result['text'][:300]
                 if result.get('pending_save'):
                     tts_text = result['text'][:150]
-                audio_bytes = synthesize_with_qwen(tts_text)
+                audio_bytes = synthesize_with_baidu(tts_text)
                 resp['audio'] = base64.b64encode(audio_bytes).decode('utf-8')
             except Exception as e:
-                print(f"[voice_dialogue] TTS 失败: {e}", file=sys.stderr, flush=True)
+                logger.warning("voice_dialogue TTS 失败: %s", e)
                 resp['audio'] = None
 
         return jsonify(resp)
@@ -702,6 +835,7 @@ def voice_dialogue():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/clear', methods=['POST'])
+@rate_limit
 def clear_history():
     client_id = _get_client_id()
     _clear_chat_history(client_id)
@@ -846,16 +980,7 @@ def get_stats():
         # 存储信息（带缓存，避免每次遍历目录）
         now_ts = time.time()
         if now_ts - _storage_size_cache["time"] > _STORAGE_CACHE_TTL:
-            vault_root = get_vault_root()
-            storage_size = 0
-            if vault_root.exists():
-                for dirpath, _dirnames, filenames in os.walk(str(vault_root)):
-                    for fn in filenames:
-                        try:
-                            storage_size += os.path.getsize(os.path.join(dirpath, fn))
-                        except OSError:
-                            pass
-            _storage_size_cache["size"] = storage_size
+            _storage_size_cache["size"] = _calculate_storage_size(get_vault_root())
             _storage_size_cache["time"] = now_ts
         storage_size = _storage_size_cache["size"]
 
@@ -908,19 +1033,8 @@ def update_memory(memory_id):
 def delete_memory(memory_id):
     try:
         conn = get_db_conn()
-        m = app_repo.get_memory(conn, memory_id)
-        if not m:
+        if not _delete_memory_with_file(conn, memory_id):
             return jsonify({'error': '记忆不存在'}), 404
-        fp = str(m.get("file_path", "") or "").strip()
-        if fp:
-            p = Path(fp)
-            if p.exists() and p.is_file() and is_path_under(p.resolve(), VAULT_DIR.resolve()):
-                try:
-                    p.unlink()
-                except OSError as e:
-                    print(f"[DELETE] 删除文件失败 {fp}: {e}", file=sys.stderr, flush=True)
-        app_repo.delete_memory(conn, memory_id)
-        _invalidate_caches()
         return jsonify({'success': True, 'message': '记忆删除成功'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -942,13 +1056,18 @@ def admin_page():
     return send_from_directory('.', 'admin.html')
 
 
-@app.route('/api/admin/verify')
+@app.route('/api/admin/verify', methods=['GET', 'POST'])
+@rate_limit
 def admin_verify():
-    """验证管理员密码"""
+    """验证管理员密码（支持 GET ?key= 和 POST {"key": "..."}）"""
     admin_key = os.environ.get("ADMIN_KEY", "").strip()
     if not admin_key:
         return jsonify({"ok": False, "error": "管理员密码未配置"}), 500
-    provided = request.args.get("key", "")
+    if request.method == 'POST':
+        body = _safe_get_json()
+        provided = body.get("key", "")
+    else:
+        provided = request.args.get("key", "")
     if provided == admin_key:
         return jsonify({"ok": True})
     return jsonify({"ok": False, "error": "密码错误"}), 401
@@ -976,15 +1095,7 @@ def admin_stats():
         ).fetchall()
         daily = [{"date": r["d"], "count": r["c"]} for r in rows_daily]
         # 存储大小
-        vault_root = get_vault_root()
-        storage_size = 0
-        if vault_root.exists():
-            for dirpath, _dirnames, filenames in os.walk(str(vault_root)):
-                for fn in filenames:
-                    try:
-                        storage_size += os.path.getsize(os.path.join(dirpath, fn))
-                    except OSError:
-                        pass
+        storage_size = _calculate_storage_size(get_vault_root())
         storage_formatted = f"{storage_size / 1024:.1f} KB" if storage_size < 1024 * 1024 else f"{storage_size / 1024 / 1024:.1f} MB"
         # 今日新增
         row_today = conn.execute(
@@ -1038,24 +1149,7 @@ def admin_memories():
             params + [page_size, offset]
         ).fetchall()
 
-        memories = []
-        for r in rows:
-            tags = []
-            try:
-                extra = json.loads(r["extra_json"] or "{}")
-                tags = extra.get("tags", [])
-            except Exception:
-                pass
-            memories.append({
-                "id": r["id"],
-                "title": r["title"] or "",
-                "summary": r["summary"] or "",
-                "body": (r["body"] or "")[:500],
-                "tags": tags,
-                "file_path": r["file_path"] or "",
-                "created_at": r["created_at"] or "",
-                "updated_at": r["updated_at"] or "",
-            })
+        memories = [_format_memory_row(r) for r in rows]
 
         return jsonify({
             "total": total,
@@ -1070,7 +1164,7 @@ def admin_memories():
 
 @app.route('/api/admin/data')
 def admin_data():
-    """返回所有记忆数据 + 统计信息（需管理员密码）- 兼容旧接口"""
+    """返回所有记忆数据 + 统计信息（需管理员密码）- 支持分页"""
     if not _check_admin_key():
         return jsonify({'error': '未授权'}), 403
     conn = get_db_conn()
@@ -1079,33 +1173,26 @@ def admin_data():
         tag_counts = app_repo.get_tag_counts(conn)
         total_tags = len(tag_counts)
         top_tags = tag_counts[:10]
-        rows = conn.execute(
-            "SELECT id, title, summary, body, file_path, extra_json, created_at, updated_at FROM memories ORDER BY updated_at DESC"
-        ).fetchall()
         row_file = conn.execute("SELECT COUNT(*) FROM memories WHERE file_path <> ''").fetchone()
         total_files = row_file[0] if row_file else 0
 
-        memories = []
-        for r in rows:
-            tags = []
-            try:
-                extra = json.loads(r["extra_json"] or "{}")
-                tags = extra.get("tags", [])
-            except Exception:
-                pass
-            memories.append({
-                "id": r["id"],
-                "title": r["title"] or "",
-                "summary": r["summary"] or "",
-                "body": (r["body"] or "")[:500],
-                "tags": tags,
-                "file_path": r["file_path"] or "",
-                "created_at": r["created_at"] or "",
-                "updated_at": r["updated_at"] or "",
-            })
+        # 分页参数
+        page = max(1, int(request.args.get("page", 1)))
+        page_size = min(500, max(1, int(request.args.get("page_size", 100))))
+        offset = (page - 1) * page_size
+
+        rows = conn.execute(
+            "SELECT id, title, summary, body, file_path, extra_json, created_at, updated_at "
+            "FROM memories ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+            (page_size, offset)
+        ).fetchall()
+
+        memories = [_format_memory_row(r) for r in rows]
 
         return jsonify({
             "total": total,
+            "page": page,
+            "page_size": page_size,
             "total_files": total_files,
             "total_tags": total_tags,
             "top_tags": top_tags,
@@ -1122,20 +1209,8 @@ def admin_delete_memory(memory_id):
         return jsonify({'error': '未授权'}), 403
     conn = get_db_conn()
     try:
-        m = app_repo.get_memory(conn, memory_id)
-        if not m:
+        if not _delete_memory_with_file(conn, memory_id):
             return jsonify({'error': '记忆不存在'}), 404
-        # 删除关联的物理文件（校验路径在允许范围内）
-        fp = str(m.get("file_path", "") or "").strip()
-        if fp:
-            p = Path(fp).resolve()
-            if p.exists() and p.is_file() and is_path_under(p, VAULT_DIR.resolve()):
-                try:
-                    p.unlink()
-                except OSError as e:
-                    print(f"[ADMIN] 删除文件失败 {fp}: {e}", file=sys.stderr, flush=True)
-        app_repo.delete_memory(conn, memory_id)
-        _invalidate_caches()
         return jsonify({'success': True, 'message': '记忆及文件已删除'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1318,8 +1393,57 @@ def _get_providers(cfg: dict) -> list:
     return providers
 
 
+def _read_env_file() -> dict:
+    """读取 .env 文件中的键值对"""
+    env_path = project_root / ".env"
+    if not env_path.exists():
+        return {}
+    result = {}
+    try:
+        for line in env_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, val = line.split("=", 1)
+                result[key.strip()] = val.strip()
+    except Exception:
+        pass
+    return result
+
+
+def _sync_env_to_config():
+    """将 .env 文件中的配置同步回 admin_config.json 的活跃 provider（反向同步）"""
+    env_vals = _read_env_file()
+    if not env_vals:
+        return
+    cfg = _read_raw_config()
+    providers = cfg.get("llm_providers", [])
+    active_id = cfg.get("active_provider_id", "zhipu")
+    active = next((p for p in providers if p.get("id") == active_id), None)
+    if not active:
+        return
+    changed = False
+    # .env 中的 key 对应 provider 中的字段
+    env_to_provider = {
+        "LLM_BASE_URL": "base_url",
+        "LLM_API_KEY": "api_key",
+        "ZHIPU_API_KEY": "api_key",
+        "LOCAL_AGENT_MODEL": "chat_model",
+        "LOCAL_AGENT_VISION_MODEL": "vision_model",
+    }
+    for env_key, provider_key in env_to_provider.items():
+        val = env_vals.get(env_key, "").strip()
+        if val and active.get(provider_key, "") != val:
+            active[provider_key] = val
+            changed = True
+    if changed:
+        cfg["llm_providers"] = providers
+        _write_raw_config(cfg)
+
+
 def _load_config():
     """从 admin_config.json 加载配置并激活当前 provider"""
+    # 先将 .env 文件的改动同步回 admin_config.json
+    _sync_env_to_config()
     cfg = _read_raw_config()
     # 加载旧式 flat 配置到 env（向后兼容）
     for key, val in cfg.items():
@@ -1349,10 +1473,23 @@ def admin_get_config():
     """获取当前模型配置（需管理员密码）"""
     if not _check_admin_key():
         return jsonify({'error': '未授权'}), 403
+    # 先将 .env 的最新值同步到 admin_config.json
+    _sync_env_to_config()
     cfg = _read_raw_config()
     providers = _get_providers(cfg)
     active_id = cfg.get("active_provider_id", "zhipu")
     active = next((p for p in providers if p.get("id") == active_id), providers[0] if providers else {})
+    # 用 .env 的值更新 os.environ（确保显示最新）
+    env_vals = _read_env_file()
+    if env_vals.get("LLM_API_KEY"):
+        os.environ["LLM_API_KEY"] = env_vals["LLM_API_KEY"]
+        os.environ["ZHIPU_API_KEY"] = env_vals["LLM_API_KEY"]
+    if env_vals.get("LLM_BASE_URL"):
+        os.environ["LLM_BASE_URL"] = env_vals["LLM_BASE_URL"]
+    if env_vals.get("LOCAL_AGENT_MODEL"):
+        os.environ["LOCAL_AGENT_MODEL"] = env_vals["LOCAL_AGENT_MODEL"]
+    if env_vals.get("LOCAL_AGENT_VISION_MODEL"):
+        os.environ["LOCAL_AGENT_VISION_MODEL"] = env_vals["LOCAL_AGENT_VISION_MODEL"]
     return jsonify({
         "chat_model": os.environ.get("LOCAL_AGENT_MODEL", "glm-4-flash-250414"),
         "vision_model": os.environ.get("LOCAL_AGENT_VISION_MODEL", "glm-4v-flash"),
@@ -1392,6 +1529,7 @@ def admin_list_providers():
     """列出所有模型厂商"""
     if not _check_admin_key():
         return jsonify({'error': '未授权'}), 403
+    _sync_env_to_config()
     cfg = _read_raw_config()
     providers = _get_providers(cfg)
     active_id = cfg.get("active_provider_id", "zhipu")
@@ -1516,6 +1654,12 @@ def admin_test_llm():
     """LLM 连通性测试（需管理员密码）"""
     if not _check_admin_key():
         return jsonify({'error': '未授权'}), 403
+    _sync_env_to_config()
+    # 用 .env 最新值更新 os.environ
+    env_vals = _read_env_file()
+    for env_key in ("LLM_API_KEY", "ZHIPU_API_KEY", "LLM_BASE_URL", "LOCAL_AGENT_MODEL", "LOCAL_AGENT_VISION_MODEL"):
+        if env_vals.get(env_key):
+            os.environ[env_key] = env_vals[env_key]
     model = os.environ.get("LOCAL_AGENT_MODEL", "")
     base_url = os.environ.get("LLM_BASE_URL", "")
     api_key = os.environ.get("LLM_API_KEY", "")
@@ -1572,6 +1716,6 @@ init_vault_once()
 
 if __name__ == '__main__':
     is_debug = os.environ.get('FLASK_DEBUG', '').lower() in ('true', '1', 'yes')
-    print(f"暖暖 - 记忆助手 Web 版 | 端口: {PORT} | 数据: {DATA_DIR}", file=sys.stderr, flush=True)
-    print(f"管理后台: http://127.0.0.1:{PORT}/admin", file=sys.stderr, flush=True)
+    logger.info("暖暖 - 记忆助手 Web 版 | 端口: %s | 数据: %s", PORT, DATA_DIR)
+    logger.info("管理后台: http://127.0.0.1:%s/admin", PORT)
     app.run(host='0.0.0.0', port=PORT, debug=is_debug)
