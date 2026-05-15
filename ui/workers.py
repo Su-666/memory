@@ -173,15 +173,19 @@ class VoiceWorker(QObject):
     def _run_dialogue(self) -> None:
         sample_rate = 16000
         max_rounds = 50
+        # 预录制缓冲区大小：保留约 500ms 的音频，防止语音开头被截断
+        pre_buffer_max_chunks = 16  # 约 480ms (每个chunk约30ms)
 
         for _ in range(max_rounds):
             if self._stop_requested:
                 break
 
             self._recorded_chunks = []
+            pre_buffer: list[bytes] = []  # 预录制缓冲区
             speech_started = False
             silence_start = None
             recording_start = None
+            speech_start_index = 0  # 语音开始时的chunk索引
 
             self.listening_changed.emit(True)
             self.status_changed.emit("请说话（说'退出'结束）...", False)
@@ -192,13 +196,28 @@ class VoiceWorker(QObject):
                         sd.sleep(30)
                         if not self._recorded_chunks:
                             continue
+
+                        # 获取最新的chunk并计算RMS
                         last_chunk = self._recorded_chunks[-1]
                         audio_data = np.frombuffer(last_chunk, dtype=np.int16)
                         rms = np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))
 
-                        if rms > 600:
+                        if not speech_started:
+                            # 语音未开始时，维护预录制缓冲区
+                            pre_buffer.append(last_chunk)
+                            if len(pre_buffer) > pre_buffer_max_chunks:
+                                pre_buffer.pop(0)
+
+                        # 使用较低的阈值检测语音开始
+                        if rms > 400:
                             if not speech_started:
                                 speech_started = True
+                                # 将预录制缓冲区的内容添加到录音开头
+                                speech_start_index = len(self._recorded_chunks) - 1
+                                # 在当前录制数据前面插入预录制数据
+                                pre_buffer.extend(self._recorded_chunks)
+                                self._recorded_chunks = pre_buffer.copy()
+                                pre_buffer.clear()
                                 recording_start = time.time()
                                 self.status_changed.emit("正在聆听...", False)
                             silence_start = None
@@ -215,7 +234,8 @@ class VoiceWorker(QObject):
 
                 self.listening_changed.emit(False)
                 pcm = b"".join(self._recorded_chunks)
-                if not pcm or len(pcm) < sample_rate:
+                # 需要足够的音频长度（至少0.5秒）
+                if not pcm or len(pcm) < (sample_rate // 2):
                     self.listening_changed.emit(True)
                     self.status_changed.emit("没听清，请再说一次...", False)
                     continue
