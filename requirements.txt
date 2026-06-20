@@ -1,0 +1,12 @@
+# Web 端依赖
+flask>=2.3.0
+flask-cors>=4.0.0
+flask-compress>=1.13
+gunicorn>=21.2.0
+python-dotenv>=1.0.0
+baidu-aip>=2.2.18
+chardet>=5.0.0
+Pillow>=10.0.0
+
+# 桌面版额外依赖
+# pip install PySide6 PySide6-Fluent-Widgets
