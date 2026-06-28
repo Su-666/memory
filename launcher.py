@@ -58,7 +58,7 @@ def ensure_data_dirs(data_root: Path) -> tuple[Path, Path]:
     return data_dir, vault_dir
 
 
-def ensure_env_file(data_root: Path, resource_root: Path) -> Path:
+def ensure_env_file(data_root: Path) -> Path:
     """首次启动时创建空白 .env（用户需通过设置页面填写 API 密钥）"""
     env_path = data_root / ".env"
     if not env_path.exists():
@@ -135,7 +135,7 @@ def start_flask(port: int, resource_root: Path,
 
     # 导入并运行 Flask 应用
     try:
-        import main as web_main  # noqa: F401
+        import main as web_main  # type: ignore[import-not-found]  # noqa: F401
         flask_app = web_main.app
     except Exception as e:
         print(f"[ERROR] Flask load failed: {e}", file=sys.stderr, flush=True)
@@ -161,7 +161,7 @@ def main() -> None:
     # 初始化数据目录
     data_root.mkdir(parents=True, exist_ok=True)
     data_dir, vault_dir = ensure_data_dirs(data_root)
-    env_path = ensure_env_file(data_root, resource_root)
+    env_path = ensure_env_file(data_root)
 
     port = find_free_port()
 
@@ -198,7 +198,7 @@ def main() -> None:
         return
 
     # 创建窗口 — 仅使用 pywebview 官方支持的参数
-    window = webview.create_window(
+    webview.create_window(
         title="暖暖记忆助手",
         url=url,
         width=DEFAULT_WIDTH,
@@ -212,6 +212,7 @@ def main() -> None:
 def _show_error_dialog(msg: str) -> None:
     """显示 Windows 错误对话框（无需 GUI 库）"""
     try:
+        import ctypes
         ctypes.windll.user32.MessageBoxW(None, msg, "暖暖记忆助手 - 启动错误", 0x10)
     except Exception:
         pass

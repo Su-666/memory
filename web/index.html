@@ -1810,13 +1810,39 @@
     <div id="settings-modal" class="image-modal-overlay" style="display: none; background: rgba(0, 0, 0, 0.35);">
         <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card-bg); border-radius: 24px; padding: 32px; max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); backdrop-filter: blur(20px); border: 1px solid var(--glass-border);">
             <h3 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 24px; font-weight: 900;">⚙️ 设置</h3>
-            <p style="margin: 0 0 24px 0; color: var(--text-muted); font-size: 13px;">配置 API 密钥后即可使用，保存后立即生效</p>
+            <p style="margin: 0 0 4px 0; color: var(--text-muted); font-size: 13px;">配置 API 密钥后即可使用，保存后立即生效</p>
+            <div id="settings-version-info" style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <span style="font-size: 12px; color: var(--text-muted);">版本 <span id="app-version" style="font-weight: 600; color: var(--text-secondary);">v6.0</span></span>
+                <span style="font-size: 12px; color: var(--card-border);">·</span>
+                <a href="https://github.com/Su-666/----" target="_blank" rel="noopener" style="font-size: 12px; color: var(--primary); text-decoration: none; display: flex; align-items: center; gap: 4px; cursor: pointer; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.7'" onmouseout="this.style.opacity='1'">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                    Su-666
+                </a>
+            </div>
             <div id="settings-fields"></div>
             <div id="settings-test-result" style="display:none; margin-top:16px; padding:12px 16px; border-radius:12px; font-size:13px;"></div>
-            <div style="display:flex; gap:12px; margin-top:24px; justify-content:flex-end;">
+            <div style="display:flex; gap:12px; margin-top:24px; justify-content:flex-end; flex-wrap: wrap;">
+                <button onclick="checkForUpdateManual()" id="settings-update-btn" style="background: transparent; border: 1px solid var(--primary); border-radius: 20px; padding: 10px 20px; cursor: pointer; color: var(--primary); font-weight: 600; font-size: 14px; transition: all 0.25s; display: flex; align-items: center; gap: 5px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    检查更新
+                </button>
                 <button onclick="testLlmConnection()" id="settings-test-btn" style="background: transparent; border: 1px solid var(--primary); border-radius: 20px; padding: 10px 20px; cursor: pointer; color: var(--primary); font-weight: 600; font-size: 14px; transition: all 0.25s;">测试连接</button>
                 <button onclick="closeSettings()" style="background: transparent; border: 1px solid var(--card-border); border-radius: 20px; padding: 10px 20px; cursor: pointer; color: var(--text-secondary); font-weight: 600; font-size: 14px;">取消</button>
                 <button onclick="saveSettings()" id="settings-save-btn" style="background: var(--user-bg); border: none; border-radius: 20px; padding: 10px 28px; cursor: pointer; color: #fff; font-weight: 600; font-size: 14px; transition: all 0.25s;">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 升级提示弹窗 -->
+    <div id="update-modal" class="image-modal-overlay" style="display: none; background: rgba(0, 0, 0, 0.4);">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--card-bg); border-radius: 24px; padding: 32px; max-width: 440px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3); backdrop-filter: blur(20px); border: 1px solid var(--glass-border); text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 12px;">🎉</div>
+            <h3 style="margin: 0 0 8px 0; color: var(--text-primary); font-size: 22px; font-weight: 900;">发现新版本</h3>
+            <p id="update-version-info" style="margin: 0 0 16px 0; color: var(--text-secondary); font-size: 14px;"></p>
+            <div id="update-changelog" style="text-align: left; background: rgba(0,0,0,0.04); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.6; max-height: 180px; overflow-y: auto; white-space: pre-wrap;"></div>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+                <button onclick="closeUpdateModal()" style="background: transparent; border: 1px solid var(--card-border); border-radius: 20px; padding: 10px 24px; cursor: pointer; color: var(--text-secondary); font-weight: 600; font-size: 14px;">稍后再说</button>
+                <button onclick="downloadUpdate()" id="update-download-btn" style="background: var(--user-bg); border: none; border-radius: 20px; padding: 10px 28px; cursor: pointer; color: #fff; font-weight: 600; font-size: 14px; transition: all 0.25s;">立即下载</button>
             </div>
         </div>
     </div>
@@ -3423,10 +3449,19 @@
             document.getElementById('settings-fields').innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">加载中...</div>';
             document.getElementById('settings-test-result').style.display = 'none';
             try {
-                const resp = await fetch('/api/settings');
-                const data = await resp.json();
+                const [settingsResp, versionResp] = await Promise.all([
+                    fetch('/api/settings'),
+                    fetch('/api/version'),
+                ]);
+                const data = await settingsResp.json();
+                const versionData = await versionResp.json();
                 _settingsMeta = data.meta;
                 renderSettingsFields(data.settings, data.meta);
+                // 更新版本号显示
+                const versionEl = document.getElementById('app-version');
+                if (versionEl && versionData.version) {
+                    versionEl.textContent = 'v' + versionData.version;
+                }
             } catch (e) {
                 document.getElementById('settings-fields').innerHTML = '<div style="color:var(--error,#ef4444);padding:20px;">加载失败: ' + e.message + '</div>';
             }
@@ -3465,9 +3500,7 @@
         }
 
         function openAdminPanel() {
-            const adminKey = (document.getElementById('setting-ADMIN_KEY') || {}).value || '';
-            const url = adminKey ? `/admin?key=${encodeURIComponent(adminKey)}` : '/admin';
-            window.open(url, '_blank');
+            window.open('/admin', '_blank');
         }
 
         function closeSettings() {
@@ -3537,6 +3570,66 @@
             }
         }
 
+        // ═══ 检查更新 ═══
+        let _updateInfo = null;
+
+        async function checkForUpdate() {
+            try {
+                const resp = await fetch('/api/update/check');
+                const data = await resp.json();
+                if (data.has_update) {
+                    _updateInfo = data;
+                    setTimeout(() => showUpdateModal(data), 1500);
+                }
+            } catch (e) {}
+        }
+
+        async function checkForUpdateManual() {
+            const btn = document.getElementById('settings-update-btn');
+            if (!btn) return;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '检查中...';
+            btn.disabled = true;
+            try {
+                const resp = await fetch('/api/update/check');
+                const data = await resp.json();
+                if (data.has_update) {
+                    _updateInfo = data;
+                    closeSettings();
+                    setTimeout(() => showUpdateModal(data), 300);
+                } else if (data.error) {
+                    showToast('❌ 检查失败: ' + data.error, 'error');
+                } else {
+                    showToast('✅ 当前已是最新版本 v' + data.current_version, 'success');
+                }
+            } catch (e) {
+                showToast('❌ 网络错误: ' + e.message, 'error');
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        function showUpdateModal(data) {
+            document.getElementById('update-version-info').textContent =
+                `当前版本 v${data.current_version}  →  最新版本 ${data.latest_version}`;
+            const changelog = document.getElementById('update-changelog');
+            changelog.textContent = data.changelog || '暂无更新说明';
+            document.getElementById('update-modal').style.display = 'block';
+        }
+
+        function closeUpdateModal() {
+            document.getElementById('update-modal').style.display = 'none';
+        }
+
+        function downloadUpdate() {
+            if (_updateInfo && _updateInfo.download_url) {
+                window.open(_updateInfo.download_url, '_blank');
+            }
+            closeUpdateModal();
+            showToast('已打开下载页面，下载完成后安装即可升级', 'info');
+        }
+
         // 首次启动检测：如果未配置 API Key，自动弹出设置
         async function checkFirstTimeSetup() {
             try {
@@ -3556,8 +3649,15 @@
             if (e.target === this) closeSettings();
         });
 
+        // 点击遮罩关闭升级弹窗
+        document.getElementById('update-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeUpdateModal();
+        });
+
         // 启动时检测配置
         checkFirstTimeSetup();
+        // 启动 3 秒后检查更新（避免与首次设置冲突）
+        setTimeout(checkForUpdate, 3000);
     </script>
 </body>
 </html>

@@ -1,13 +1,12 @@
-name: 构建安装包并发布
+name: 构建并发布安装包
 
 on:
   push:
-    tags:
-      - 'v*'          # 推送 v 开头的 tag 时触发（如 v6.0、v6.1）
-  workflow_dispatch:   # 也支持手动触发
+    branches: [main]       # 推送到 main 分支时自动触发
+  workflow_dispatch:        # 也支持手动触发
 
 permissions:
-  contents: write      # 允许创建 Release
+  contents: write           # 允许创建/更新 Release
 
 jobs:
   build:
@@ -28,19 +27,29 @@ jobs:
           pip install -r requirements.txt
 
       - name: 安装 Inno Setup 6
-        run: |
-          choco install innosetup -y --no-progress
+        run: choco install innosetup -y --no-progress
 
       - name: 构建安装包
         run: python build_exe.py
 
-      - name: 上传安装包到 Release
+      - name: 获取提交信息
+        id: info
+        shell: bash
+        run: |
+          echo "date=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "msg=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+
+      - name: 发布到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: 暖暖记忆助手 ${{ github.ref_name }}
+          tag_name: latest
+          name: 暖暖记忆助手 最新版
           body: |
-            ## 暖暖记忆助手 ${{ github.ref_name }}
+            ## 暖暖记忆助手
+
+            **自动构建** — ${{ steps.info.outputs.date }}
+            **提交** — ${{ steps.info.outputs.sha }} ${{ steps.info.outputs.msg }}
 
             ### 安装方式
             1. 下载 `暖暖记忆助手-Setup.exe`
@@ -54,3 +63,4 @@ jobs:
             installer_output/暖暖记忆助手-Setup.exe
           draft: false
           prerelease: false
+          make_latest: true

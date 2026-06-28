@@ -27,6 +27,10 @@ from flask_compress import Compress
 APP_VERSION = "6.0"
 CHANGELOG = "全新界面设计，在线模式，暗色主题支持"
 DOWNLOAD_URL = ""
+# GitHub 仓库（用于检查更新）
+GITHUB_OWNER = "Su-666"
+GITHUB_REPO = "----"
+GITHUB_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest"
 
 # 端口配置
 PORT = int(os.environ.get("PORT", 5000))
@@ -419,6 +423,68 @@ def get_version():
         "download_url": DOWNLOAD_URL,
         "changelog": CHANGELOG,
     })
+
+
+@app.route('/api/update/check')
+def check_update():
+    """检查 GitHub Release 是否有新版本"""
+    import urllib.request
+    try:
+        req = urllib.request.Request(GITHUB_API, headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "Nuannuan-Memory-Assistant",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        # 从 tag 或 name 中提取版本号
+        remote_version = data.get("tag_name", "").strip()
+        release_name = data.get("name", "")
+        published = data.get("published_at", "")[:10]
+
+        # 提取安装包下载链接
+        download_url = ""
+        for asset in data.get("assets", []):
+            if asset.get("name", "").endswith(".exe"):
+                download_url = asset.get("browser_download_url", "")
+                break
+        if not download_url:
+            download_url = data.get("html_url", "")
+
+        # 提取更新说明（取前 500 字符）
+        body = data.get("body", "")[:500]
+
+        # 比较版本号
+        has_update = _compare_versions(remote_version, APP_VERSION) > 0
+
+        return jsonify({
+            "has_update": has_update,
+            "current_version": APP_VERSION,
+            "latest_version": remote_version,
+            "release_name": release_name,
+            "published_at": published,
+            "download_url": download_url,
+            "changelog": body,
+        })
+    except Exception as e:
+        return jsonify({"has_update": False, "error": str(e)[:200]})
+
+
+def _compare_versions(v1: str, v2: str) -> int:
+    """比较版本号，返回 1(v1>v2) / 0(相等) / -1(v1<v2)。
+    支持 v6.0、6.0、6.0.1 等格式。
+    """
+    def parse(v: str) -> list[int]:
+        v = v.strip().lstrip("vV")
+        return [int(x) if x.isdigit() else 0 for x in v.split(".")]
+    a, b = parse(v1), parse(v2)
+    # 补齐长度
+    while len(a) < len(b): a.append(0)
+    while len(b) < len(a): b.append(0)
+    for x, y in zip(a, b):
+        if x > y: return 1
+        if x < y: return -1
+    return 0
 
 # ============ 设置管理 ============
 
@@ -1482,31 +1548,6 @@ def _activate_provider(provider: dict):
     os.environ["ZHIPU_API_KEY"] = provider.get("api_key", "")
 
 
-def _sync_env_file(updates: dict):
-    """将指定的键值对同步写入 .env 文件（保留原有内容和注释）"""
-    env_path = Path(_env_path)
-    if not env_path.exists():
-        return
-    try:
-        lines = env_path.read_text(encoding="utf-8").splitlines()
-        updated_keys = set()
-        new_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#") and "=" in stripped:
-                key = stripped.split("=", 1)[0].strip()
-                if key in updates:
-                    new_lines.append(f"{key}={updates[key]}")
-                    updated_keys.add(key)
-                    continue
-            new_lines.append(line)
-        # 追加 .env 中不存在的键
-        for key, val in updates.items():
-            if key not in updated_keys:
-                new_lines.append(f"{key}={val}")
-        env_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    except Exception:
-        pass
 
 
 def _get_providers(cfg: dict) -> list:
