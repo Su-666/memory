@@ -7,6 +7,3 @@ python-dotenv>=1.0.0
 baidu-aip>=2.2.18
 chardet>=5.0.0
 Pillow>=10.0.0
-
-# 桌面版额外依赖
-# pip install PySide6 PySide6-Fluent-Widgets

@@ -1,6 +1,6 @@
 # 暖暖记忆助手 v6.0
 
-一个基于大语言模型的个人记忆管理助手，支持 Web 端和桌面端两种使用方式。用户可以通过文字、语音或图片与"暖暖"对话，保存想法、联系人、备忘等内容，并随时搜索回忆。
+一个基于大语言模型的个人记忆管理助手，支持 Web 端使用方式。用户可以通过文字、语音或图片与"暖暖"对话，保存想法、联系人、备忘等内容，并随时搜索回忆。
 
 ## 核心能力
 
@@ -10,7 +10,7 @@
 - **语音交互** — 百度 ASR/TTS，支持连续语音对话模式
 - **文件保险库** — 所有记忆以 Markdown 文件归档到 `memory_vault/` 目录
 - **管理员后台** — 独立 SPA 管理页面，支持数据查看、搜索、删除、导出和备份
-- **暗色模式** — Web 端和桌面端均支持亮色/暗色主题切换
+- **暗色模式** — Web 端支持亮色/暗色主题切换
 
 ## 技术栈
 
@@ -18,7 +18,6 @@
 |------|------|
 | Web 后端 | Flask + Gunicorn + Flask-CORS |
 | Web 前端 | 原生 HTML/CSS/JS 单页应用 |
-| 桌面端 | PySide6 + PyQt-Fluent-Widgets（Fluent 风格、暗色模式、动画） |
 | 数据库 | SQLite + FTS5 全文索引 |
 | 大模型 | 智谱 AI（GLM-4-Flash 对话，GLM-4V-Flash 图片理解） |
 | 语音 | 百度 AIP（服务端 ASR + TTS） |
@@ -27,13 +26,11 @@
 
 ```
 记忆助手/
-├── pyqt_local_agent.py      # 桌面端主程序
-├── build_exe.py              # PyInstaller 打包脚本
 ├── requirements.txt          # Python 依赖
 ├── .env.example              # 环境变量模板
 ├── .env                      # API 密钥（不提交到 Git）
 │
-├── app/                      # 核心业务逻辑（桌面端和 Web 端共用）
+├── app/                      # 核心业务逻辑（Web 端）
 │   ├── db.py                 #   数据库连接与表结构初始化
 │   ├── repo.py               #   记忆 CRUD、标签提取、保险库导入
 │   ├── search.py             #   FTS5 全文搜索 + LIKE 回退 + 评分排序
@@ -44,17 +41,7 @@
 │   ├── vision.py             #   图片理解（描述、标签、OCR）
 │   ├── vault.py              #   文件保险库（附件导入、Markdown 写入）
 │   ├── zhipu_client.py       #   智谱 API 统一 HTTP 客户端
-│   ├── api_client.py         #   HTTP API 客户端（桌面端→服务端通信）
 │   └── utils.py              #   工具函数
-│
-├── ui/                       # 桌面端 UI 组件
-│   ├── main_window.py        #   主窗口（AgentWindow）
-│   ├── styles.py             #   主题色、气泡样式、全局 QSS
-│   ├── dialogs.py            #   对话框（统计、图片预览、服务器设置）
-│   ├── workers.py            #   语音录制/识别后台线程
-│   └── widgets/
-│       ├── chat_bubble.py    #   聊天气泡 + 记忆卡片组件
-│       └── command_input.py  #   输入框组件（拖拽、自动补全）
 │
 └── web/                      # Web 部署目录
     ├── main.py               #   Flask 后端（全部 API 路由）
@@ -86,20 +73,18 @@
  回答生成 (answer.py) ← 记忆上下文
         │
         ▼
-   Flask API 服务端 (web/main.py)
+Flask API 服务端 (web/main.py)
         │
-   ┌────┴────┐
-   ▼         ▼
- 桌面端     Web 前端
-(API客户端)  (浏览器)
+        └─── Web 前端
+               (浏览器)
 ```
 
 **关键设计决策：**
 
-- **纯在线架构** — 桌面端通过 `MemoryApiClient` 调用 Flask 后端 API，支持自动重连和指数退避
-- **共享业务逻辑** — `app/` 目录下的代码被桌面端和 Web 端共用，避免逻辑重复
+- **纯 Web 架构** — 无需安装客户端，浏览器直接访问
+- **轻量设计** — 所有代码在服务器端运行，客户端仅需浏览器
 - **FTS5 + LIKE 双重搜索** — 优先使用 FTS5 全文索引，索引不可用时回退到 LIKE 模糊匹配
-- **服务端语音处理** — ASR/TTS 通过百度 AIP 在服务端完成，桌面端无需安装音频库
+- **服务端语音处理** — ASR/TTS 通过百度 AIP 在服务端完成，客户端无需安装音频库
 - **连接池与缓存** — 服务端使用 LRU 缓存（tags 300s、stats 60s、recent 30s），减少重复查询
 
 ## 快速开始
@@ -113,9 +98,6 @@
 
 ```bash
 pip install -r requirements.txt
-
-# 桌面端额外依赖
-pip install PySide6 PyQt-Fluent-Widgets
 ```
 
 ### 配置 API 密钥
@@ -132,7 +114,7 @@ cp .env.example .env
 
 ### 启动运行
 
-**1. 启动 Web 服务：**
+**启动 Web 服务：**
 
 ```bash
 cd web
@@ -140,14 +122,6 @@ python main.py
 ```
 
 浏览器打开 http://127.0.0.1:5000 ，管理后台在 http://127.0.0.1:5000/admin
-
-**2. 启动桌面端（新终端）：**
-
-```bash
-python pyqt_local_agent.py
-```
-
-桌面端连接本地服务器 `http://127.0.0.1:5000`，需先启动 Web 服务。
 
 ## API 接口
 

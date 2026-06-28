@@ -1,6 +1,6 @@
 """
 统一 LLM 聊天调用。
-桌面端和 Web 端共用此模块，确保参数、提示词、温度一致。
+Web 端核心模块，确保参数、提示词、温度一致。
 """
 from __future__ import annotations
 
