@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 10   # 获取最近 10 次提交，用于生成更新说明
 
       - name: 安装 Python
         uses: actions/setup-python@v5
@@ -30,6 +32,8 @@ jobs:
         run: choco install innosetup -y --no-progress
 
       - name: 构建安装包
+        env:
+          SKIP_BUMP: '1'    # 云端构建跳过版本号递增，使用本地推送的 VERSION
         run: python build_exe.py
 
       - name: 获取提交信息
@@ -40,6 +44,11 @@ jobs:
           echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "msg=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
           echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
+          # 生成最近 5 条提交记录作为更新说明
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s (%h)" -5 >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: 发布到 GitHub Release
         uses: softprops/action-gh-release@v2
@@ -51,6 +60,9 @@ jobs:
 
             **自动构建** — ${{ steps.info.outputs.date }}
             **提交** — ${{ steps.info.outputs.sha }} ${{ steps.info.outputs.msg }}
+
+            ### 更新说明
+            ${{ steps.info.outputs.changelog }}
 
             ### 安装方式
             1. 下载 `暖暖记忆助手-Setup.exe`
@@ -65,12 +77,3 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
-
-      - name: 提交版本号到仓库
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "chore: bump version to ${{ steps.info.outputs.version }}" || echo "no changes"
-          git push

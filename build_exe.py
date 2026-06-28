@@ -227,10 +227,14 @@ def main() -> None:
         print(f"请运行: pip install {' '.join(missing)}")
         sys.exit(1)
 
-    # 版本号自动递增
+    # 版本号自动递增（设置 SKIP_BUMP=1 可跳过，用于云端 CI 使用本地推送的版本号）
     old_version = read_version(root)
-    new_version = bump_version(root)
-    print(f"[版本] {old_version} → {new_version}\n")
+    if os.environ.get("SKIP_BUMP") == "1":
+        new_version = old_version
+        print(f"[版本] 跳过递增，使用当前版本: {new_version}\n")
+    else:
+        new_version = bump_version(root)
+        print(f"[版本] {old_version} → {new_version}\n")
 
     # 第一步：PyInstaller
     if not run_pyinstaller(root):

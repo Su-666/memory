@@ -444,8 +444,20 @@ def get_version():
 
 @app.route('/api/update/check')
 def check_update():
-    """检查 GitHub Release 是否有新版本"""
+    """检查 GitHub Release 是否有新版本（带 1 小时缓存，避免触发 GitHub API 限流）"""
     import urllib.request
+    import urllib.error
+    # 缓存：1 小时内不重复请求 GitHub API
+    cache = getattr(check_update, "_cache", None)
+    cache_time = getattr(check_update, "_cache_time", 0)
+    now = time.time()
+    if cache and (now - cache_time) < 3600:
+        # 返回缓存结果，但用当前 APP_VERSION 重新计算 has_update
+        cache_copy = dict(cache)
+        cache_copy["current_version"] = APP_VERSION
+        cache_copy["has_update"] = _compare_versions(cache_copy.get("latest_version", ""), APP_VERSION) > 0
+        return jsonify(cache_copy)
+
     try:
         req = urllib.request.Request(GITHUB_API, headers={
             "Accept": "application/vnd.github+json",
@@ -474,7 +486,7 @@ def check_update():
         # 比较版本号
         has_update = _compare_versions(remote_version, APP_VERSION) > 0
 
-        return jsonify({
+        result = {
             "has_update": has_update,
             "current_version": APP_VERSION,
             "latest_version": remote_version,
@@ -482,7 +494,17 @@ def check_update():
             "published_at": published,
             "download_url": download_url,
             "changelog": body,
-        })
+        }
+        # 写入缓存
+        check_update._cache = result  # type: ignore[attr-defined]
+        check_update._cache_time = now  # type: ignore[attr-defined]
+        return jsonify(result)
+    except urllib.error.HTTPError as e:
+        if e.code == 403 or e.code == 429:
+            return jsonify({"has_update": False, "error": "GitHub API 请求过于频繁，请稍后再试"})
+        if e.code == 404:
+            return jsonify({"has_update": False, "error": "尚未发布任何版本"})
+        return jsonify({"has_update": False, "error": f"GitHub API 错误: {e.code}"})
     except Exception as e:
         return jsonify({"has_update": False, "error": str(e)[:200]})
 
