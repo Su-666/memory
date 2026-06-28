@@ -23,8 +23,28 @@ from flask import Flask, jsonify, request, send_from_directory, Response
 from flask_cors import CORS
 from flask_compress import Compress
 
-# 版本信息
-APP_VERSION = "6.0"
+# 项目根目录（web/ 的父目录）— 提前定义供版本读取使用
+project_root = Path(__file__).resolve().parent.parent
+
+# 版本信息：从 VERSION 文件读取（本地开发和打包后均生效）
+def _read_version() -> str:
+    """从 VERSION 文件读取版本号，失败回退到默认值"""
+    candidates = []
+    # 打包后：sys.executable 所在目录（_MEIPASS 或 exe 同级）
+    if getattr(sys, "frozen", False):
+        candidates.append(Path(sys.executable).parent / "VERSION")
+        candidates.append(Path(sys._MEIPASS) / "VERSION")  # type: ignore[attr-defined]
+    # 本地开发：项目根目录
+    candidates.append(project_root / "VERSION")
+    for p in candidates:
+        try:
+            if p.exists():
+                return p.read_text(encoding="utf-8").strip()
+        except Exception:
+            continue
+    return "1.0.0"
+
+APP_VERSION = _read_version()
 CHANGELOG = "全新界面设计，在线模式，暗色主题支持"
 DOWNLOAD_URL = ""
 # GitHub 仓库（用于检查更新）
@@ -34,9 +54,6 @@ GITHUB_API = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/release
 
 # 端口配置
 PORT = int(os.environ.get("PORT", 5000))
-
-# 项目根目录（web/ 的父目录）
-project_root = Path(__file__).resolve().parent.parent
 
 # 确保项目根目录在 Python 路径中
 if str(project_root) not in sys.path:

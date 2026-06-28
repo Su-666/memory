@@ -39,14 +39,15 @@ jobs:
           echo "date=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
           echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
           echo "msg=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+          echo "version=$(cat VERSION)" >> $GITHUB_OUTPUT
 
       - name: 发布到 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: 暖暖记忆助手 最新版
+          tag_name: v${{ steps.info.outputs.version }}
+          name: 暖暖记忆助手 v${{ steps.info.outputs.version }}
           body: |
-            ## 暖暖记忆助手
+            ## 暖暖记忆助手 v${{ steps.info.outputs.version }}
 
             **自动构建** — ${{ steps.info.outputs.date }}
             **提交** — ${{ steps.info.outputs.sha }} ${{ steps.info.outputs.msg }}
@@ -64,3 +65,12 @@ jobs:
           draft: false
           prerelease: false
           make_latest: true
+
+      - name: 提交版本号到仓库
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: bump version to ${{ steps.info.outputs.version }}" || echo "no changes"
+          git push

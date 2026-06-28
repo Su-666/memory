@@ -27,6 +27,31 @@ if sys.platform == "win32":
 
 APP_NAME = "暖暖记忆助手"
 ISS_FILE = "安装包.iss"
+VERSION_FILE = "VERSION"
+
+
+def read_version(root: Path) -> str:
+    """读取 VERSION 文件中的版本号"""
+    p = root / VERSION_FILE
+    if p.exists():
+        return p.read_text(encoding="utf-8").strip()
+    return "6.0.0"
+
+
+def bump_version(root: Path) -> str:
+    """版本号 patch 位自动 +1（如 6.0.0 → 6.0.1），返回新版本号"""
+    current = read_version(root)
+    parts = current.split(".")
+    # 补齐到三段：major.minor.patch
+    while len(parts) < 3:
+        parts.append("0")
+    try:
+        parts[2] = str(int(parts[2]) + 1)
+    except ValueError:
+        parts[2] = "1"
+    new_version = ".".join(parts[:3])
+    (root / VERSION_FILE).write_text(new_version + "\n", encoding="utf-8")
+    return new_version
 
 
 def check_dependency(pkg: str) -> bool:
@@ -86,6 +111,11 @@ def run_pyinstaller(root: Path) -> bool:
     if env_example.exists():
         cmd += ["--add-data", f"{env_example}{sep}."]
 
+    # VERSION 文件（程序运行时读取版本号）
+    version_file = root / VERSION_FILE
+    if version_file.exists():
+        cmd += ["--add-data", f"{version_file}{sep}."]
+
     # 安全检查：确保不会把含真实密钥的 .env 打包进去
     real_env = root / ".env"
     if real_env.exists():
@@ -131,7 +161,7 @@ def run_pyinstaller(root: Path) -> bool:
     return result.returncode == 0
 
 
-def run_inno_setup(root: Path) -> bool:
+def run_inno_setup(root: Path, version: str) -> bool:
     """第二步：用 Inno Setup 编译安装包"""
     iscc = find_iscc()
     if not iscc:
@@ -147,8 +177,12 @@ def run_inno_setup(root: Path) -> bool:
     print("\n" + "=" * 60)
     print("[2/3] Inno Setup 编译安装包中...")
     print(f"  ISCC: {iscc}")
+    print(f"  版本: {version}")
     print("=" * 60)
-    result = subprocess.run([iscc, str(iss_path)], cwd=str(root))
+    # 通过环境变量 APP_VERSION 把版本号传给 ISS 脚本
+    env = os.environ.copy()
+    env["APP_VERSION"] = version
+    result = subprocess.run([iscc, str(iss_path)], cwd=str(root), env=env)
     return result.returncode == 0
 
 
@@ -193,13 +227,18 @@ def main() -> None:
         print(f"请运行: pip install {' '.join(missing)}")
         sys.exit(1)
 
+    # 版本号自动递增
+    old_version = read_version(root)
+    new_version = bump_version(root)
+    print(f"[版本] {old_version} → {new_version}\n")
+
     # 第一步：PyInstaller
     if not run_pyinstaller(root):
         print("\n[失败] PyInstaller 打包失败")
         sys.exit(1)
 
     # 第二步：Inno Setup
-    if not run_inno_setup(root):
+    if not run_inno_setup(root, new_version):
         print("\n[失败] Inno Setup 编译失败")
         sys.exit(1)
 
@@ -210,6 +249,7 @@ def main() -> None:
     installer = root / "installer_output" / f"{APP_NAME}-Setup.exe"
     print("\n" + "=" * 60)
     print("[完成] 安装程序已生成！")
+    print(f"  版本: {new_version}")
     print(f"  文件: {installer}")
     if installer.exists():
         print(f"  大小: {installer.stat().st_size / 1024 / 1024:.1f} MB")

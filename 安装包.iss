@@ -7,7 +7,11 @@
 ; 或在 Inno Setup Studio 中打开此文件按 F9 编译。
 
 #define MyAppName "暖暖记忆助手"
-#define MyAppVersion "6.0"
+; 版本号由 build_exe.py 通过环境变量 APP_VERSION 传入，默认回退 6.0.0
+#ifndef APP_VERSION
+  #define APP_VERSION "6.0.0"
+#endif
+#define MyAppVersion APP_VERSION
 #define MyAppPublisher "暖暖记忆助手"
 #define MyAppExeName "暖暖记忆助手.exe"
 #define MyAppSourceDir "dist\暖暖记忆助手"
