@@ -29,13 +29,14 @@
 ├── requirements.txt          # Python 依赖
 ├── .env.example              # 环境变量模板
 ├── .env                      # API 密钥（不提交到 Git）
+├── launcher.py               # 桌面程序入口（Flask + pywebview）
+├── build_exe.py              # PyInstaller 打包脚本
 │
-├── app/                      # 核心业务逻辑（Web 端）
+├── app/                      # 核心业务逻辑
 │   ├── db.py                 #   数据库连接与表结构初始化
 │   ├── repo.py               #   记忆 CRUD、标签提取、保险库导入
 │   ├── search.py             #   FTS5 全文搜索 + LIKE 回退 + 评分排序
 │   ├── answer.py             #   基于记忆的回答生成（LLM + 本地规则）
-│   ├── intent.py             #   LLM 意图规划
 │   ├── intent_chat.py        #   统一意图路由（保存/搜索/聊天）
 │   ├── llm.py                #   智谱大模型调用
 │   ├── vision.py             #   图片理解（描述、标签、OCR）
@@ -47,8 +48,7 @@
     ├── main.py               #   Flask 后端（全部 API 路由）
     ├── index.html            #   Web 前端 SPA
     ├── admin.html            #   管理员后台 SPA
-    ├── import_setup.py       #   路径修复（Web 部署用）
-    └── requirements.txt      #   Web 端依赖
+    └── import_setup.py       #   路径修复（Web 部署用）
 ```
 
 ## 架构设计
@@ -122,6 +122,29 @@ python main.py
 ```
 
 浏览器打开 http://127.0.0.1:5000 ，管理后台在 http://127.0.0.1:5000/admin
+
+### 打包为桌面程序
+
+将 Flask 后端 + Web 前端打包为一个 Windows 桌面程序，双击即可运行，自动以原生窗口打开界面。
+
+**1. 安装打包依赖：**
+
+```bash
+pip install pywebview pythonnet pywin32 pyinstaller
+```
+
+**2. 执行打包：**
+
+```bash
+python build_exe.py
+```
+
+**3. 运行：**
+
+打包完成后，在 `dist/暖暖记忆助手/` 目录下双击 `暖暖记忆助手.exe` 即可启动。
+程序会在 `%APPDATA%/记忆助手/` 下创建数据目录（数据库、保险库、`.env` 配置），首次启动需编辑该 `.env` 填入 API 密钥。
+
+> 说明：桌面程序通过 pywebview 创建原生窗口加载本地 Flask 服务，关闭窗口即退出。系统需已安装 WebView2 运行时（Windows 10/11 默认自带）。
 
 ## API 接口
 

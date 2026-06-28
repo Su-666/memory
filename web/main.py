@@ -77,8 +77,9 @@ ALLOWED_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
 CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGINS}})
 
 # 加载环境变量（复用 app.utils 的统一实现）
-from app.utils import load_env_file
-load_env_file(str(project_root / ".env"))
+from app.utils import load_env_file, parse_env_file, save_env_file
+_env_path = os.environ.get("ENV_FILE") or str(project_root / ".env")
+load_env_file(_env_path)
 
 # ============ 优化：数据库单例连接 ============
 _db_conn = None
@@ -418,6 +419,102 @@ def get_version():
         "download_url": DOWNLOAD_URL,
         "changelog": CHANGELOG,
     })
+
+# ============ 设置管理 ============
+
+# 可通过设置页面配置的键
+_SETTING_KEYS = {
+    "ZHIPU_API_KEY": {"label": "智谱 AI API Key", "sensitive": True, "required": True,
+                       "help": "获取地址：https://open.bigmodel.cn/"},
+    "LOCAL_AGENT_MODEL": {"label": "对话模型", "sensitive": False, "required": False,
+                          "help": "默认 glm-4-flash-250414（免费）"},
+    "LOCAL_AGENT_VISION_MODEL": {"label": "图片理解模型", "sensitive": False, "required": False,
+                                 "help": "默认 glm-4v-flash（免费）"},
+    "BAIDU_APP_ID": {"label": "百度 App ID", "sensitive": False, "required": False,
+                     "help": "语音功能需要，不填则语音不可用"},
+    "BAIDU_API_KEY": {"label": "百度 API Key", "sensitive": True, "required": False, "help": ""},
+    "BAIDU_SECRET_KEY": {"label": "百度 Secret Key", "sensitive": True, "required": False, "help": ""},
+    "ADMIN_KEY": {"label": "管理员密码", "sensitive": True, "required": False,
+                  "help": "管理后台登录密码"},
+}
+
+
+def _mask_value(val: str) -> str:
+    """对敏感值做掩码处理，只显示前2后2字符"""
+    if not val or len(val) <= 6:
+        return "*" * max(len(val), 4) if val else ""
+    return val[:2] + "*" * (len(val) - 4) + val[-2:]
+
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    """获取当前配置（敏感值掩码显示）"""
+    env_data = parse_env_file(_env_path)
+    settings = {}
+    for key, meta in _SETTING_KEYS.items():
+        raw = env_data.get(key, os.environ.get(key, ""))
+        if meta["sensitive"] and raw:
+            settings[key] = _mask_value(raw)
+        else:
+            settings[key] = raw
+    return jsonify({
+        "settings": settings,
+        "meta": _SETTING_KEYS,
+        "configured": bool(env_data.get("ZHIPU_API_KEY", "").strip()
+                           or os.environ.get("ZHIPU_API_KEY", "").strip()),
+    })
+
+
+@app.route('/api/settings', methods=['POST'])
+def save_settings():
+    """保存配置到 .env 并立即生效。
+    敏感字段如果值包含 *（掩码格式）则跳过，空值会清空对应配置。
+    """
+    data = request.get_json(silent=True) or {}
+    updates: dict[str, str] = {}
+    for key in _SETTING_KEYS:
+        if key not in data:
+            continue
+        val = str(data[key]).strip()
+        # 敏感字段：如果值是掩码格式（包含 *），则跳过不覆盖
+        if _SETTING_KEYS[key]["sensitive"] and "*" in val:
+            continue
+        # 空值也写入（清除旧值），非空值正常写入
+        updates[key] = val
+
+    if not updates:
+        return jsonify({"success": True, "message": "没有需要更新的配置"})
+
+    try:
+        save_env_file(_env_path, updates)
+        # 同步更新 os.environ（包括清空）
+        for key, val in updates.items():
+            if val:
+                os.environ[key] = val
+            else:
+                os.environ.pop(key, None)
+        logger.info("设置已更新: %s", ", ".join(updates.keys()))
+        return jsonify({"success": True, "message": "设置已保存并生效"})
+    except Exception as e:
+        logger.error("保存设置失败: %s", e)
+        return jsonify({"error": f"保存失败: {e}"}), 500
+
+
+@app.route('/api/settings/test', methods=['POST'])
+def test_llm_connection():
+    """测试 LLM 连通性（用当前已保存的 API Key）"""
+    api_key = os.getenv("ZHIPU_API_KEY", "").strip()
+    if not api_key:
+        return jsonify({"ok": False, "error": "未配置智谱 API Key"})
+    try:
+        from app.zhipu_client import call_chat
+        call_chat(
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10, timeout=15, retries=0,
+        )
+        return jsonify({"ok": True, "message": "连接成功，API Key 有效"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)[:300]})
 
 @app.route('/api/vault/path', methods=['GET'])
 def get_vault_path():
@@ -1374,24 +1471,20 @@ def _write_raw_config(cfg: dict):
 
 
 def _activate_provider(provider: dict):
-    """将指定 provider 的配置写入 os.environ 并同步到 .env 文件，使 LLM 调用立即生效"""
+    """将指定 provider 的配置写入 os.environ，使 LLM 调用立即生效。
+    不再反向写入 .env（.env 由设置页面统一管理）。
+    """
     os.environ["LLM_BASE_URL"] = provider.get("base_url", "")
     os.environ["LLM_API_KEY"] = provider.get("api_key", "")
     os.environ["LOCAL_AGENT_MODEL"] = provider.get("chat_model", "glm-4-flash-250414")
     os.environ["LOCAL_AGENT_VISION_MODEL"] = provider.get("vision_model", "glm-4v-flash")
     # 向后兼容
     os.environ["ZHIPU_API_KEY"] = provider.get("api_key", "")
-    # 同步到 .env 文件（确保重启后仍然生效）
-    _sync_env_file({
-        "LOCAL_AGENT_MODEL": provider.get("chat_model", "glm-4-flash-250414"),
-        "LOCAL_AGENT_VISION_MODEL": provider.get("vision_model", "glm-4v-flash"),
-        "ZHIPU_API_KEY": provider.get("api_key", ""),
-    })
 
 
 def _sync_env_file(updates: dict):
     """将指定的键值对同步写入 .env 文件（保留原有内容和注释）"""
-    env_path = project_root / ".env"
+    env_path = Path(_env_path)
     if not env_path.exists():
         return
     try:
@@ -1419,11 +1512,12 @@ def _sync_env_file(updates: dict):
 def _get_providers(cfg: dict) -> list:
     providers = cfg.get("llm_providers", [])
     if not providers:
-        # 首次使用：从旧配置迁移生成默认 provider
+        # 首次使用：从 .env 文件读取配置生成默认 provider
+        env_vals = _read_env_file()
         default = dict(_DEFAULT_PROVIDER)
-        default["api_key"] = cfg.get("ZHIPU_API_KEY", os.environ.get("ZHIPU_API_KEY", ""))
-        default["chat_model"] = cfg.get("LOCAL_AGENT_MODEL", os.environ.get("LOCAL_AGENT_MODEL", "glm-4-flash-250414"))
-        default["vision_model"] = cfg.get("LOCAL_AGENT_VISION_MODEL", os.environ.get("LOCAL_AGENT_VISION_MODEL", "glm-4v-flash"))
+        default["api_key"] = env_vals.get("ZHIPU_API_KEY", "")
+        default["chat_model"] = env_vals.get("LOCAL_AGENT_MODEL", "glm-4-flash-250414")
+        default["vision_model"] = env_vals.get("LOCAL_AGENT_VISION_MODEL", "glm-4v-flash")
         providers = [default]
         cfg["llm_providers"] = providers
         cfg["active_provider_id"] = "zhipu"
@@ -1433,7 +1527,7 @@ def _get_providers(cfg: dict) -> list:
 
 def _read_env_file() -> dict:
     """读取 .env 文件中的键值对"""
-    env_path = project_root / ".env"
+    env_path = Path(_env_path)
     if not env_path.exists():
         return {}
     result = {}
@@ -1484,8 +1578,10 @@ def _load_config():
     _sync_env_to_config()
     cfg = _read_raw_config()
     # 加载旧式 flat 配置到 env（向后兼容）
+    # 注意：敏感字段（API Key）不从 config.json 加载，只从 .env 读取
+    _sensitive_keys = {"ZHIPU_API_KEY", "LLM_API_KEY", "BAIDU_API_KEY", "BAIDU_SECRET_KEY", "ADMIN_KEY"}
     for key, val in cfg.items():
-        if isinstance(val, str) and val.strip():
+        if isinstance(val, str) and val.strip() and key not in _sensitive_keys:
             os.environ[key] = val
     # 加载 provider 并激活
     providers = _get_providers(cfg)

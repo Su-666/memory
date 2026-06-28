@@ -1,0 +1,56 @@
+name: 构建安装包并发布
+
+on:
+  push:
+    tags:
+      - 'v*'          # 推送 v 开头的 tag 时触发（如 v6.0、v6.1）
+  workflow_dispatch:   # 也支持手动触发
+
+permissions:
+  contents: write      # 允许创建 Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 安装 Inno Setup 6
+        run: |
+          choco install innosetup -y --no-progress
+
+      - name: 构建安装包
+        run: python build_exe.py
+
+      - name: 上传安装包到 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 暖暖记忆助手 ${{ github.ref_name }}
+          body: |
+            ## 暖暖记忆助手 ${{ github.ref_name }}
+
+            ### 安装方式
+            1. 下载 `暖暖记忆助手-Setup.exe`
+            2. 双击运行，按向导完成安装
+            3. 桌面快捷方式启动程序
+            4. 首次启动在设置页面填入智谱 API Key 即可使用
+
+            ### 获取 API Key
+            - 智谱 AI：https://open.bigmodel.cn/
+          files: |
+            installer_output/暖暖记忆助手-Setup.exe
+          draft: false
+          prerelease: false

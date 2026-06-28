@@ -7,3 +7,12 @@ python-dotenv>=1.0.0
 baidu-aip>=2.2.18
 chardet>=5.0.0
 Pillow>=10.0.0
+
+# 桌面程序依赖（pywebview 用于将 Web 端封装为原生窗口）
+pywebview>=4.4
+pythonnet>=3.0.3        ; platform_system == "Windows"
+pywin32>=306            ; platform_system == "Windows"
+
+# 打包工具（仅开发时需要）
+pyinstaller>=6.0
+
