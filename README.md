@@ -187,18 +187,6 @@ python build_exe.py
 
 输出：`installer_output/暖暖记忆助手-Setup.exe`
 
-### 自动发布（GitHub Actions）
-
-推送代码到 `main` 分支时，GitHub Actions 自动构建安装包并发布到 Release：
-
-```bash
-git add .
-git commit -m "更新内容"
-git push
-```
-
-推送后自动构建，完成后 GitHub Release 页面的 `latest` 版本会更新为最新安装包，朋友直接下载即可。
-
 ## 数据存储
 
 | 文件 | 位置 | 作用 |
@@ -220,7 +208,7 @@ git push
 
 | 微信 | 支付宝 |
 |:---:|:---:|
-| ![微信](data/assets/wechat-qr.jpg) | ![支付宝](data/assets/alipay-qr.png) |
+| ![微信](data/assets/wechat-qr.jpg)
 
 > 扫码即可捐赠，金额随意，感谢支持！
 
