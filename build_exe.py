@@ -13,11 +13,17 @@
 """
 from __future__ import annotations
 
+import io
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+# 强制 Windows 控制台使用 UTF-8 编码，避免中文路径报 UnicodeEncodeError
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 APP_NAME = "暖暖记忆助手"
 ISS_FILE = "安装包.iss"

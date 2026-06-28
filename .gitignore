@@ -16,8 +16,9 @@ venv/
 .env
 web/.env
 
-# Runtime data
-data/
+# Runtime data（保留 assets 下的二维码等静态资源）
+data/*
+!data/assets/
 web/data/
 memory_vault/
 *.db
