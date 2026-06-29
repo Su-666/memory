@@ -206,7 +206,6 @@ python build_exe.py
 
 如果这个项目对你有帮助，欢迎请作者喝杯咖啡 ☕
 
-|:---:|
 | ![微信](data/assets/暖暖记忆助手-author-support-poster.png) |
 
 > 扫码即可捐赠，金额随意，感谢支持！
