@@ -208,7 +208,7 @@ python build_exe.py
 
 | 微信 |
 |:---:|
-| ![微信](data/assets/wechat-qr.jpg) |
+| ![微信](data/assets/暖暖记忆助手-author-support-poster.png) |
 
 > 扫码即可捐赠，金额随意，感谢支持！
 
